@@ -4,7 +4,23 @@ GitHub Action to add a GitHub status link to a CircleCI artifact.
 
 ## Example usage
 
-uses: actions/run-circleci-artifacts-redirector@v1
+uses: `actions/circleci-artifacts-redirector-action@v1`
+
+Sample `.github/workflows/main.yml`:
+
+```YAML
+on: [status]
+jobs:
+  circleci_artifacts_redirector_job:
+    runs-on: ubuntu-latest
+    name: Run CircleCI artifacts redirector
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v1
+      - name: GitHub Action step
+        uses: ./ # Uses an action in the root directory
+        id: run-circleci-artifacts-redirector
+```
 
 To use this application, add a `.circleci/artifact_path` file whose only
 contents are the artifact path. This is typically whatever follows the
