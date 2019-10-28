@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: GitHub Action step
         uses: actions/circleci-artifacts-redirector-action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 To use this application, add a `.circleci/artifact_path` file whose only
