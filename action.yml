@@ -1,5 +1,9 @@
 name: 'run-circleci-artifacts-redirector'
 description: 'Check for CircleCI status update and maybe push our own'
+author: 'Eric Larson'
+inputs:
+  repo-token:
+    description: 'The GITHUB_TOKEN secret'
 on: status
 runs:
   using: 'node12'
