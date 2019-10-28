@@ -9942,50 +9942,33 @@ const github = __webpack_require__(828);
 async function run() {
   try {
     core.debug((new Date()).toTimeString())
-    const context = github.context
-    if (['ci/circleci: build_docs', 'ci/circleci: doc', 'ci/circleci: build'].indexOf(context.payload.context) < 0) {
-      core.debug('Ignoring context ' + context.payload.context)
+    const path = core.getInput('artifact-path', {required: true})
+    const token = core.getInput('repo-token', {required: true})
+    const payload = github.context.payload
+    if (['ci/circleci: build_docs', 'ci/circleci: doc', 'ci/circleci: build'].indexOf(payload.context) < 0) {
+      core.debug('Ignoring context ' + payload.context)
       return
     }
-    if (context.payload.state === 'pending') {
-      core.debug('Ignoring pending ' + context.payload.context)
+    if (payload.state === 'pending') {
+      core.debug('Ignoring pending ' + payload.context)
       return
     }
     core.debug('Processing:')
-    core.debug(context.payload.context)
-    core.debug(context.payload.state)
-    const token = core.getInput('repo-token', {required: true})
-    const client = new github.GitHub(token)
-    // Adapted (MIT license) from https://github.com/Financial-Times/ebi/blob/master/lib/get-contents.js
-    const filepath = '.circleci/artifact_path'
-    var path = ''
-    try {
-      const repoData = await client.repos.getContents({
-        repo: context.repo.repo,
-        owner: context.repo.owner,
-        ref: context.payload.sha,
-        path: filepath
-      })
-      path = Buffer.from(repoData.data.content, 'base64').toString('utf8').trim()
-    } catch (error) {
-      if (error.status === 404) {
-        throw new Error(`404 ERROR: file '${filepath}' not found`)
-      } else {
-        throw error
-      }
-    }
+    core.debug(payload.context)
+    core.debug(payload.state)
     // Set the new status
-    const state = (context.payload.state === 'success') ? 'success' : 'neutral'
-    const buildId = context.payload.target_url.split('?')[0].split('/').slice(-1)[0]
-    const repoId = context.payload.repository.id
+    const state = (payload.state === 'success') ? 'success' : 'neutral'
+    const buildId = payload.target_url.split('?')[0].split('/').slice(-1)[0]
+    const repoId = payload.repository.id
     const url = 'https://' + buildId + '-' + repoId + '-gh.circle-artifacts.com/' + path
     core.debug('Linking to:')
     core.debug(url)
     core.debug((new Date()).toTimeString())
+    const client = new github.GitHub(token)
     return client.repos.createStatus({
-      repo: context.repo.repo,
-      owner: context.repo.owner,
-      sha: context.payload.sha,
+      repo: github.context.repo.repo,
+      owner: github.context.repo.owner,
+      sha: payload.sha,
       state: state,
       target_url: url,
       description: 'Link to ' + path,

@@ -4,6 +4,8 @@ author: 'Eric Larson'
 inputs:
   repo-token:
     description: 'The GITHUB_TOKEN secret'
+  artifact-path:
+    description: 'Path to the CircleCI artifact'
 on: status
 runs:
   using: 'node12'

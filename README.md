@@ -17,11 +17,12 @@ jobs:
         uses: actions/circleci-artifacts-redirector-action@v1
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          artifact-path: 0/test_artifacts/root_artifact.md
 ```
 
-To use this application, add a `.circleci/artifact_path` file whose only
-contents are the artifact path. This is typically whatever follows the
-CircleCI artifact root path, for example `0/test_artifacts/root_artifact.md`.
+The `artifact-path` should point to an artifact path from your CircleCI build.
+This is typically whatever follows the CircleCI artifact root path,
+for example `0/test_artifacts/root_artifact.md`.
 
 ## Limitations
 
