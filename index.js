@@ -32,7 +32,7 @@ async function run() {
         ref: context.payload.sha,
         path: filepath
       })
-      path = Buffer.from(repoData.data.content, 'base64').toString('utf8').replace(/(\r\n|\n|\r)/gm, "")
+      path = Buffer.from(repoData.data.content, 'base64').toString('utf8').trim()
     } catch (error) {
       if (error.status === 404) {
         throw new Error(`404 ERROR: file '${filepath}' not found`)
