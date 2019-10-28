@@ -10,16 +10,16 @@ async function run() {
     core.debug((new Date()).toTimeString())
     const context = github.context
     if (['ci/circleci: build_docs', 'ci/circleci: doc', 'ci/circleci: build'].indexOf(context.payload.context) < 0) {
-      context.log('Ignoring context ' + context.payload.context)
+      core.debug('Ignoring context ' + context.payload.context)
       return
     }
     if (context.payload.state === 'pending') {
-      context.log('Ignoring pending ' + context.payload.context)
+      core.debug('Ignoring pending ' + context.payload.context)
       return
     }
-    context.log('Processing:')
-    context.log(context.payload.context)
-    context.log(context.payload.state)
+    core.debug('Processing:')
+    core.debug(context.payload.context)
+    core.debug(context.payload.state)
     // Adapted (MIT license) from https://github.com/Financial-Times/ebi/blob/master/lib/get-contents.js
     const filepath = '.circleci/artifact_path'
     var path = ''
@@ -38,8 +38,8 @@ async function run() {
     const buildId = context.payload.target_url.split('?')[0].split('/').slice(-1)[0]
     const repoId = context.payload.repository.id
     const url = 'https://' + buildId + '-' + repoId + '-gh.circle-artifacts.com/' + path
-    context.log('Linking to:')
-    context.log(url)
+    core.debug('Linking to:')
+    core.debug(url)
     core.debug((new Date()).toTimeString())
     return github.repos.createStatus(context.repo({
       sha: context.payload.sha,
