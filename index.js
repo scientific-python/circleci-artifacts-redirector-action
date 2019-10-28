@@ -38,7 +38,7 @@ async function run() {
       state: state,
       target_url: url,
       description: 'Link to ' + path,
-      context: context.payload.context + ' artifact'
+      context: payload.context + ' artifact'
     })
   } catch (error) {
     core.setFailed(error.message);
