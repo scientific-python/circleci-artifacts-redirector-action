@@ -24,7 +24,7 @@ async function run() {
     const filepath = '.circleci/artifact_path'
     var path = ''
     try {
-      const repoData = await github.repos.getContents(context.repo({ ref: context.payload.sha, path: filepath }))
+      const repoData = await context.github.repos.getContents(context.repo({ ref: context.payload.sha, path: filepath }))
       path = Buffer.from(repoData.data.content, 'base64').toString('utf8')
     } catch (error) {
       if (error.status === 404) {
