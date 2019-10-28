@@ -9954,11 +9954,13 @@ async function run() {
     core.debug('Processing:')
     core.debug(context.payload.context)
     core.debug(context.payload.state)
+    const token = core.getInput('repo-token', {required: true})
+    const client = new github.GitHub(token)
     // Adapted (MIT license) from https://github.com/Financial-Times/ebi/blob/master/lib/get-contents.js
     const filepath = '.circleci/artifact_path'
     var path = ''
     try {
-      const repoData = await github.repos.getContents(context.repo({ ref: context.payload.sha, path: filepath }))
+      const repoData = await client.repos.getContents(context.repo({ ref: context.payload.sha, path: filepath }))
       path = Buffer.from(repoData.data.content, 'base64').toString('utf8')
     } catch (error) {
       if (error.status === 404) {
@@ -9975,7 +9977,7 @@ async function run() {
     core.debug('Linking to:')
     core.debug(url)
     core.debug((new Date()).toTimeString())
-    return github.repos.createStatus(context.repo({
+    return client.repos.createStatus(context.repo({
       sha: context.payload.sha,
       state: state,
       target_url: url,
