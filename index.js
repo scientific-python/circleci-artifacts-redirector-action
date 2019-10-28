@@ -26,8 +26,13 @@ async function run() {
     const filepath = '.circleci/artifact_path'
     var path = ''
     try {
-      const repoData = await client.repos.getContents({ repo: context.repo.repo, owner: context.repo.owner, ref: context.payload.sha, path: filepath })
-      path = Buffer.from(repoData.data.content, 'base64').toString('utf8')
+      const repoData = await client.repos.getContents({
+        repo: context.repo.repo,
+        owner: context.repo.owner,
+        ref: context.payload.sha,
+        path: filepath
+      })
+      path = Buffer.from(repoData.data.content, 'base64').toString('utf8').replace(/(\r\n|\n|\r)/gm, "")
     } catch (error) {
       if (error.status === 404) {
         throw new Error(`404 ERROR: file '${filepath}' not found`)
@@ -43,13 +48,15 @@ async function run() {
     core.debug('Linking to:')
     core.debug(url)
     core.debug((new Date()).toTimeString())
-    return client.repos.createStatus(context.repo({
+    return client.repos.createStatus({
+      repo: context.repo.repo,
+      owner: context.repo.owner,
       sha: context.payload.sha,
       state: state,
       target_url: url,
       description: 'Link to ' + path,
       context: context.payload.context + ' artifact'
-    }))
+    })
   } catch (error) {
     core.setFailed(error.message);
   }
