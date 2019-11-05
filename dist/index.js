@@ -9936,16 +9936,22 @@ module.exports = require("zlib");
 // Hence we must monitor statuses rather than using the more convenient
 // "checks" API.
 
-const core = __webpack_require__(996);
-const github = __webpack_require__(828);
+const core = __webpack_require__(996)
+const github = __webpack_require__(828)
 
 async function run() {
   try {
     core.debug((new Date()).toTimeString())
+    const payload = github.context.payload
     const path = core.getInput('artifact-path', {required: true})
     const token = core.getInput('repo-token', {required: true})
-    const payload = github.context.payload
-    if (['ci/circleci: build_docs', 'ci/circleci: doc', 'ci/circleci: build'].indexOf(payload.context) < 0) {
+    var circleciJobs = core.getInput('circleci-jobs', {required: false})
+    if (circleciJobs == '') {
+      circleciJobs = 'build_docs,doc,build'
+    }
+    const prepender = x => 'ci/circleci: ' + x
+    circleciJobs = circleciJobs.split(',').map(prepender)
+    if (circleciJobs.indexOf(payload.context) < 0) {
       core.debug('Ignoring context ' + payload.context)
       return
     }
@@ -9975,7 +9981,7 @@ async function run() {
       context: payload.context + ' artifact'
     })
   } catch (error) {
-    core.setFailed(error.message);
+    core.setFailed(error.message)
   }
 }
 
