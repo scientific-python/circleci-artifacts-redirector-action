@@ -31,17 +31,19 @@ jobs:
 
 > **Note**: The standard PR-to-main-repo-from-branch-in-a-fork workflow might
 > not activate the action. For changes to take effect, changes might need to be
-> made to a branch *in a repo with the action enabled*. For example, you could
-> iterate directly in `master`, in a separate branch in your main repo, or
-> enable the action in a fork for testing purposes.
+> made to to the default branch *in a repo with the action enabled*. For
+> example, you could iterate directly in `master`, or in `master` of a fork.
+> This seems to be a limitation of the fact that CircleCI uses the `status`
+> (rather than app) API and that this is always tied to the `master`/default
+> branch of a given repository.
 
 ## Limitations
 
 Currently has (known) limitations:
 
 - Tests do not test anything (haven't gotten around to fixing them)
-- Only allows redirecting to a single file that must be configured ahead of time as a file (cannot be changed within the CircleCI run)
-- Writes a commit status to `ci/circleci: <job-name> artifact`
+- Only allows redirecting to a single file that must be configured ahead of
+  time as a file (cannot be changed within the CircleCI run)
 
-Eventually this stuff can all probably be fixed by a bit of work and addition
-of customization options.
+Eventually this might be fixable by a bit of work and addition of
+customization options.
