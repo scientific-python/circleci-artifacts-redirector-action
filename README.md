@@ -24,6 +24,12 @@ The `artifact-path` should point to an artifact path from your CircleCI build.
 This is typically whatever follows the CircleCI artifact root path,
 for example `0/test_artifacts/root_artifact.md`.
 
+> **Note**: The standard PR-to-main-repo-from-branch-in-a-fork workflow will
+> not activate the action. For changes to take effect, changes must be made to
+> a branch *in a repo with the action enabled*. Thus you can iterate directly
+> in `master`, in a separate branch in your main repo, or enable the action
+> in your fork for testing purposes.
+
 ## Limitations
 
 Currently has (known) serious limitations:
