@@ -4,8 +4,13 @@ author: 'Eric Larson'
 inputs:
   repo-token:
     description: 'The GITHUB_TOKEN secret'
+    required: true
   artifact-path:
     description: 'Path to the CircleCI artifact'
+    required: true
+  circleci-jobs:
+    description: 'Comma-separated list of CircleCI jobs to monitor (default is "build_docs,build,doc")'
+    required: false
 on: status
 runs:
   using: 'node12'

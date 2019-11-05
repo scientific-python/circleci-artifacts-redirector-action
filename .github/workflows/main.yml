@@ -9,9 +9,9 @@ jobs:
       # GitHub-action users should not do this!
       # See README.md for usage instructions.
       - name: Checkout repo
-        uses: actions/checkout@v1
+        uses: actions/checkout@master
       - name: GitHub Action step
-        uses: ./
+        uses: ./@${{ github.ref }}
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
