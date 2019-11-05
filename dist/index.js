@@ -9951,16 +9951,19 @@ async function run() {
     }
     const prepender = x => 'ci/circleci: ' + x
     circleciJobs = circleciJobs.split(',').map(prepender)
-    core.debug('Considering CircleCI jobs named: ' + circleciJobs)
+    core.debug('Considering CircleCI jobs named:')
+    core.debug(circleciJobs)
     if (circleciJobs.indexOf(payload.context) < 0) {
-      core.debug('Ignoring context ' + payload.context)
+      core.debug('Ignoring context:')
+      core.debug(payload.context)
       return
     }
     if (payload.state === 'pending') {
-      core.debug('Ignoring pending ' + payload.context)
+      core.debug('Ignoring pending:')
+      core.debug(payload.context)
       return
     }
-    core.debug('Processing:')
+    core.debug('Processing context and state:')
     core.debug(payload.context)
     core.debug(payload.state)
     // Set the new status

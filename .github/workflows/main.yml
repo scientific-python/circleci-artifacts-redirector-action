@@ -13,7 +13,7 @@ jobs:
         with:
           ref: ${{ github.ref }}
       - name: GitHub Action step
-        uses: ./
+        uses: ./@
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
