@@ -11,7 +11,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@master
       - name: GitHub Action step
-        uses: ./@${{ github.ref }}
+        uses: ./
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md

@@ -9946,7 +9946,7 @@ async function run() {
     const path = core.getInput('artifact-path', {required: true})
     const token = core.getInput('repo-token', {required: true})
     var circleciJobs = core.getInput('circleci-jobs', {required: false})
-    if (circleciJobs == '') {
+    if (circleciJobs === '') {
       circleciJobs = 'build_docs,doc,build'
     }
     const prepender = x => 'ci/circleci: ' + x
