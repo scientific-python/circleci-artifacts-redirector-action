@@ -33,13 +33,7 @@ jobs:
 > not activate the action. For changes to take effect, changes might need to be
 > made to a branch *in a repo with the action enabled*. For example, you could
 > iterate directly in `master`, in a separate branch in your main repo, or
-> enable the action in a fork for testing purposes. Or it's possible some
-> preceding GitHub action step such as this could work:
->
->     - name: Checkout repo
->       uses: actions/checkout@master
->       with:
->         ref: ${{ github.ref }}
+> enable the action in a fork for testing purposes.
 
 ## Limitations
 

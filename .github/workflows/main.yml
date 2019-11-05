@@ -10,10 +10,8 @@ jobs:
       # See README.md for usage instructions.
       - name: Checkout repo
         uses: actions/checkout@master
-        with:
-          ref: ${{ github.ref }}
       - name: GitHub Action step
-        uses: ./@
+        uses: ./@${{ github.ref }}
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
