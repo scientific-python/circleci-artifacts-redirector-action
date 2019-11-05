@@ -4,10 +4,14 @@ jobs:
     runs-on: ubuntu-latest
     name: Run CircleCI artifacts redirector
     steps:
+      # WARNING!
+      # This repo uses the action in its own root directory.
+      # GitHub-action users should not do this!
+      # See README.md for usage instructions.
       - name: Checkout repo
         uses: actions/checkout@v1
       - name: GitHub Action step
-        uses: ./ # Uses an action in the root directory
+        uses: ./
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
