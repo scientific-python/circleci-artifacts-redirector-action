@@ -9951,6 +9951,7 @@ async function run() {
     }
     const prepender = x => 'ci/circleci: ' + x
     circleciJobs = circleciJobs.split(',').map(prepender)
+    core.debug('Considering CircleCI jobs named: ' + circleciJobs)
     if (circleciJobs.indexOf(payload.context) < 0) {
       core.debug('Ignoring context ' + payload.context)
       return
