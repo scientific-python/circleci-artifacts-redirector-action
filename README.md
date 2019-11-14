@@ -29,7 +29,7 @@ jobs:
   The default is `"build_docs,build,doc"`, which will look for any
   jobs with these names and create an artifacts link for them.
 - If you have trouble, try [enabling debugging logging](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/managing-a-workflow-run#enabling-debug-logging)
-  for the action.
+  for the action by setting the `ACTIONS_STEP_DEBUG` secret.
 
 > **Note**: The standard PR-to-main-repo-from-branch-in-a-fork workflow might
 > not activate the action. For changes to take effect, changes might need to be
