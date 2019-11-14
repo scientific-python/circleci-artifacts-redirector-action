@@ -14,7 +14,7 @@ jobs:
     name: Run CircleCI artifacts redirector
     steps:
       - name: GitHub Action step
-        uses: actions/circleci-artifacts-redirector-action@v1
+        uses: larsoner/circleci-artifacts-redirector-action@master
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
@@ -28,6 +28,8 @@ jobs:
   there is a single one that you want an artifact path for.
   The default is `"build_docs,build,doc"`, which will look for any
   jobs with these names and create an artifacts link for them.
+- If you have trouble, try [enabling debugging logging](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/managing-a-workflow-run#enabling-debug-logging)
+  for the action by setting the `ACTIONS_STEP_DEBUG` secret.
 
 > **Note**: The standard PR-to-main-repo-from-branch-in-a-fork workflow might
 > not activate the action. For changes to take effect, changes might need to be
