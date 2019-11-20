@@ -9967,7 +9967,7 @@ async function run() {
     core.debug(payload.context)
     core.debug(payload.state)
     // Set the new status
-    const state = (payload.state === 'success') ? 'success' : 'neutral'
+    const state = payload.state
     const buildId = payload.target_url.split('?')[0].split('/').slice(-1)[0]
     const repoId = payload.repository.id
     const url = 'https://' + buildId + '-' + repoId + '-gh.circle-artifacts.com/' + path
