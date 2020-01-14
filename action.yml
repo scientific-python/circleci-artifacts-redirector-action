@@ -1,5 +1,5 @@
 name: 'run-circleci-artifacts-redirector'
-description: 'Check for CircleCI status update and maybe push our own'
+description: 'Create a direct artifact link upon CircleCI completion'
 branding:
   icon: check
   color: black
