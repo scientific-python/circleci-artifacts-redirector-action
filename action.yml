@@ -1,6 +1,8 @@
 name: 'run-circleci-artifacts-redirector'
 description: 'Check for CircleCI status update and maybe push our own'
-icon: check
+branding:
+  icon: check
+  color: black
 author: 'Eric Larson'
 inputs:
   repo-token:
