@@ -40,10 +40,10 @@ async function run() {
     const client = new github.GitHub(token)
     var description = '';
     if (payload.state === 'pending') {
-      description = 'Link to ' + path
+      description = 'Waiting for CircleCI ...'
     }
     else {
-      description = 'Waiting for CircleCI ...'
+      description = 'Link to ' + path
     }
     return client.repos.createStatus({
       repo: github.context.repo.repo,
