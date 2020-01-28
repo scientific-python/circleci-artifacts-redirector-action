@@ -2,7 +2,7 @@
 // Hence we must monitor statuses rather than using the more convenient
 // "checks" API.
 //
-// After changing this file, use ncc build index.js to rebuild to dist/
+// After changing this file, use `ncc build index.js` to rebuild to dist/
 
 const core = require('@actions/core')
 const github = require('@actions/github')
@@ -40,10 +40,10 @@ async function run() {
     const client = new github.GitHub(token)
     var description = '';
     if (payload.state === 'pending') {
-      description = 'Link to ' + path
+      description = 'Waiting for CircleCI ...'
     }
     else {
-      description = 'Waiting for CircleCI ...'
+      description = 'Link to ' + path
     }
     return client.repos.createStatus({
       repo: github.context.repo.repo,
