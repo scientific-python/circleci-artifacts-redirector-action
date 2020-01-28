@@ -9936,7 +9936,7 @@ module.exports = require("zlib");
 // Hence we must monitor statuses rather than using the more convenient
 // "checks" API.
 //
-// After changing this file, use ncc build index.js to rebuild to dist/
+// After changing this file, use `ncc build index.js` to rebuild to dist/
 
 const core = __webpack_require__(996)
 const github = __webpack_require__(828)
@@ -9974,10 +9974,10 @@ async function run() {
     const client = new github.GitHub(token)
     var description = '';
     if (payload.state === 'pending') {
-      description = 'Link to ' + path
+      description = 'Waiting for CircleCI ...'
     }
     else {
-      description = 'Waiting for CircleCI ...'
+      description = 'Link to ' + path
     }
     return client.repos.createStatus({
       repo: github.context.repo.repo,
