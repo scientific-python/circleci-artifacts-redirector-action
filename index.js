@@ -2,7 +2,7 @@
 // Hence we must monitor statuses rather than using the more convenient
 // "checks" API.
 //
-// After changing this file, use ncc build index.js to rebuild to dist/
+// After changing this file, use `ncc build index.js` to rebuild to dist/
 
 const core = require('@actions/core')
 const github = require('@actions/github')
