@@ -9935,6 +9935,8 @@ module.exports = require("zlib");
 // This as annoying because CircleCI does not use the App API.
 // Hence we must monitor statuses rather than using the more convenient
 // "checks" API.
+//
+// After changing this file, use ncc build index.js to rebuild to dist/
 
 const core = __webpack_require__(996)
 const github = __webpack_require__(828)
@@ -9958,11 +9960,6 @@ async function run() {
       core.debug(payload.context)
       return
     }
-    if (payload.state === 'pending') {
-      core.debug('Ignoring pending:')
-      core.debug(payload.context)
-      return
-    }
     core.debug('Processing context and state:')
     core.debug(payload.context)
     core.debug(payload.state)
@@ -9975,13 +9972,20 @@ async function run() {
     core.debug(url)
     core.debug((new Date()).toTimeString())
     const client = new github.GitHub(token)
+    var description = '';
+    if (payload.state === 'pending') {
+      description = 'Link to ' + path
+    }
+    else {
+      description = 'Waiting for CircleCI ...'
+    }
     return client.repos.createStatus({
       repo: github.context.repo.repo,
       owner: github.context.repo.owner,
       sha: payload.sha,
       state: state,
       target_url: url,
-      description: 'Link to ' + path,
+      description: description,
       context: payload.context + ' artifact'
     })
   } catch (error) {
