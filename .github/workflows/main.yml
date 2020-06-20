@@ -3,6 +3,8 @@ jobs:
   circleci_artifacts_redirector_job:
     runs-on: ubuntu-latest
     name: Run CircleCI artifacts redirector
+    outputs:
+      url: ${{ steps.run-circleci-artifacts-redirector.outputs.url }}
     steps:
       # WARNING!
       # This repo uses the action in its own root directory.
@@ -16,3 +18,14 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
         id: run-circleci-artifacts-redirector
+
+  use_outputs_job:
+    runs-on: ubuntu-latest
+    needs: [circleci_artifacts_redirector_job]
+    name: Use the output
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@master
+      - name: Check the URL
+        run: |
+          curl --fail ${{ needs.circleci_artifacts_redirector_job.outputs.url }} | grep $GITHUB_SHA

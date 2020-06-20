@@ -14,11 +14,16 @@ jobs:
     name: Run CircleCI artifacts redirector
     steps:
       - name: GitHub Action step
+        id: step1
         uses: larsoner/circleci-artifacts-redirector-action@master
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
           circleci-jobs: build_doc
+      - name: Check the URL
+        run: |
+          curl --fail ${{ steps.step1.outputs.url }} | grep $GITHUB_SHA
+
 ```
 
 - The `artifact-path` should point to an artifact path from your CircleCI
