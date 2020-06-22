@@ -37,6 +37,7 @@ async function run() {
     core.debug('Linking to:')
     core.debug(url)
     core.debug((new Date()).toTimeString())
+    core.setOutput("url", url);
     const client = new github.GitHub(token)
     var description = '';
     if (payload.state === 'pending') {
