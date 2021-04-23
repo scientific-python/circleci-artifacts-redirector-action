@@ -15,7 +15,7 @@ inputs:
     description: 'Comma-separated list of CircleCI jobs to monitor (default is "build_docs,build,doc")'
     required: false
   job-title:
-    description: 'The name of the job, as it will render on the PR GUI (default is '<name of CI job> artifact)'
+    description: 'The name of the job, as it will render on the PR GUI (default is "<name of CI job> artifact)"'
     required: false
 outputs:
   url:
