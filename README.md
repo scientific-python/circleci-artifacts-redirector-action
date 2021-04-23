@@ -20,6 +20,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
           circleci-jobs: build_doc
+          job-title: Check the rendered docs here!
       - name: Check the URL
         run: |
           curl --fail ${{ steps.step1.outputs.url }} | grep $GITHUB_SHA
@@ -33,6 +34,9 @@ jobs:
   there is a single one that you want an artifact path for.
   The default is `"build_docs,build,doc"`, which will look for any
   jobs with these names and create an artifacts link for them.
+- The `job-title` corresponds to the name of the action job as it will appear
+  on github. It is **not** the circle-ci job you want the artifacts for
+  (this is `circleci-jobs`). This field is optional.
 - If you have trouble, try [enabling debugging logging](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/managing-a-workflow-run#enabling-debug-logging)
   for the action by setting the secret `ACTIONS_STEP_DEBUG=true`.
 

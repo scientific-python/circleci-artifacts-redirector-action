@@ -46,6 +46,10 @@ async function run() {
     else {
       description = 'Link to ' + path
     }
+    var job_title = core.getInput('job-title', {required: false})
+    if (job_title === '') {
+      job_title = payload.context + ' artifact'
+    }
     return client.repos.createStatus({
       repo: github.context.repo.repo,
       owner: github.context.repo.owner,
@@ -53,7 +57,7 @@ async function run() {
       state: state,
       target_url: url,
       description: description,
-      context: payload.context + ' artifact'
+      context: job_title
     })
   } catch (error) {
     core.setFailed(error.message)
