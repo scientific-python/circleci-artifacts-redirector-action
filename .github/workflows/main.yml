@@ -17,6 +17,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
+          job-title: See artifact here!
         id: run-circleci-artifacts-redirector
 
   use_outputs_job:
