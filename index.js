@@ -48,7 +48,7 @@ async function run() {
     }
     var job_title = core.getInput('job-title', {required: false})
     if (job_title === '') {
-      job_title = payload.context + ' artifact -- wait is this even hit?'
+      job_title = payload.context + ' artifact'
     }
     return client.repos.createStatus({
       repo: github.context.repo.repo,
