@@ -1,4 +1,4 @@
-# circleci-artifacts-redirector
+# circleci-artifacts-redirector-action
 
 GitHub Action to add a GitHub status link to a CircleCI artifact.
 
