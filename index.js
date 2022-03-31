@@ -46,8 +46,8 @@ async function run() {
     core.debug(`Fetching JSON: ${artifacts_url}`)
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
     const artifacts = await request.request(artifacts_url, {json: true, resolveWithFullResponse: true})
-    if (artifacts.error || artifacts.res.statusCode != 200) {
-      core.error(`JSON fetching error (${artifacts.res.statusCode}):\n${artifacts.error}`)
+    if (artifacts.error) {
+      core.error(`JSON fetching error: ${artifacts.error}`)
       return
     }
     core.debug('Artifacts JSON:')
