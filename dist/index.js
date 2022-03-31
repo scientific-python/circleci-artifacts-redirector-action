@@ -26186,26 +26186,31 @@ async function run() {
     }
     const prepender = x => 'ci/circleci: ' + x
     circleciJobs = circleciJobs.split(',').map(prepender)
-    core.debug('Considering CircleCI jobs named:')
-    core.debug(circleciJobs)
+    core.debug('Considering CircleCI jobs named: ${circleciJobs}')
     if (circleciJobs.indexOf(payload.context) < 0) {
-      core.debug('Ignoring context:')
-      core.debug(payload.context)
+      core.debug('Ignoring context: ${payload.context}')
       return
     }
-    core.debug('Processing context, state, url:')
     const state = payload.state
-    core.debug(payload.context)
-    core.debug(state)
-    core.debug(payload.target_url)
+    core.debug('context:    ${payload.context}')
+    core.debug('state:      ${state}')
+    core.debug('target_url: ${payload.target_url}')
+    // e.g., https://circleci.com/gh/larsoner/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
     // Set the new status
-    const buildId = payload.target_url.split('?')[0].split('/').slice(-1)[0]
-    const repoId = payload.repository.id
-    core.debug('Build, repo ID:')
-    core.debug(buildId)
-    core.debug(repoId)
+    const parts = payload.target_url.split('?')[0].split('/')
+    const orgId = parts[-3]
+    const repoId = parts[-2]
+    const buildId = parts[-1]
+    core.debug('org:   ${orgId}')
+    core.debug('repo:  ${repoId}')
+    core.debug('build: ${buildId}')
     // Get the URLs
-    const url = 'https://' + buildId + '-' + repoId + '-gh.circle-artifacts.com/' + path
+    /scikit-learn/scikit-learn/185345/artifacts
+    const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + org + '/' + repo + '/' + buildId + '/artifacts'
+    core.debug('Fetching JSON: ${artifacts_url}')
+    const artifacts = await octokit.request('GET ${artifacts_url}')
+    core.debug('Artifacts JSON:\n${artifacts}')
+    const url = artifacts_url  // TODO: WRONG
     core.debug('Linking to:')
     core.debug(url)
     core.debug((new Date()).toTimeString())
