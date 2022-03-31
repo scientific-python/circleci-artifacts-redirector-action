@@ -26205,11 +26205,11 @@ async function run() {
     core.debug('repo:  ${repoId}')
     core.debug('build: ${buildId}')
     // Get the URLs
-    /scikit-learn/scikit-learn/185345/artifacts
-    const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + org + '/' + repo + '/' + buildId + '/artifacts'
+    const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifacts'
     core.debug('Fetching JSON: ${artifacts_url}')
-    const artifacts = await octokit.request('GET ${artifacts_url}')
-    core.debug('Artifacts JSON:\n${artifacts}')
+    const artifacts = await JSON.parse(core.request('GET ${artifacts_url}'))
+    core.debug('Artifacts JSON:')
+    core.debug(artifacts)
     const url = artifacts_url  // TODO: WRONG
     core.debug('Linking to:')
     core.debug(url)
