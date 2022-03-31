@@ -11,11 +11,11 @@ jobs:
       # GitHub-action users should not do this!
       # See README.md for usage instructions.
       - name: Print expected ref
-        run: echo SHA=${{ github.sha }}
+        run: echo SHA=${{ github.commit.commit.tree.sha }}
       - name: Checkout repo
         uses: actions/checkout@master
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.commit.commit.tree.sha }}
       - name: Check history
         run: git log -n 1
       - name: GitHub Action step

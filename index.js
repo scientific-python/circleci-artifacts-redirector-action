@@ -4,6 +4,9 @@
 //
 // After changing this file, use `ncc build index.js` to rebuild to dist/
 
+// Refs:
+// https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
+
 const core = require('@actions/core')
 const github = require('@actions/github')
 
