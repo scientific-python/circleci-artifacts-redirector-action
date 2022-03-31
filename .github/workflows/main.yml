@@ -10,10 +10,12 @@ jobs:
       # This repo uses the action in its own root directory.
       # GitHub-action users should not do this!
       # See README.md for usage instructions.
+      - name: Print expected ref
+        run: echo SHA=${{ github.sha }}
       - name: Checkout repo
         uses: actions/checkout@master
         with:
-          ref: ${{ github.event.ref }}
+          ref: ${{ github.sha }}
       - name: Check history
         run: git log -n 1
       - name: GitHub Action step
