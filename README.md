@@ -61,20 +61,5 @@ customization options.
 
 ## Contributing
 
-Because this action works on the `[status]` event at the repo level, it can
-be difficult to test using continuous integration in the standard way
-because it *always* uses the `master` version of the action.
-
-One option is to make all changes in your own fork but in your *master*
-branch. This will ensure that the *modified action* is run on each
-commit push, so that you can see the results. Make sure you have
-CircleCI set up to run on your fork, and GitHub actions enabled
-for your fork, by visiting the following URLs with your GitHub
-username substituted:
-
-- https://app.circleci.com/projects/project-dashboard/github/<GH_USERNAME>/
-- https://github.com/<GH_USERNAME>/circleci-artifacts-redirector-action/settings/actions
-
-Then to make a PR, make sure you have done `npm install` to get all
-dependencies, then `ncc build index.js`, and then open a PR to merge
-changes from your fork's `master` branch to the upstream `master`.
+Make sure you have done `npm install` to get all dependencies and used
+`ncc build index.js` before committing and opening a PR.
