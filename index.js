@@ -29,10 +29,11 @@ async function run() {
       core.debug(payload.context)
       return
     }
-    core.debug('Processing context and state:')
+    core.debug('Processing context, state, url:')
     const state = payload.state
     core.debug(payload.context)
     core.debug(state)
+    core.debug(payload.target_url)
     // Set the new status
     const buildId = payload.target_url.split('?')[0].split('/').slice(-1)[0]
     const repoId = payload.repository.id
