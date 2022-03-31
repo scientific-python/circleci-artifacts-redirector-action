@@ -15,11 +15,11 @@ jobs:
           GITHUB_EVENT: ${{ toJSON(github.event) }}
         run: echo "$GITHUB_EVENT"
       - name: Print expected ref
-        run: echo SHA=${{ github.commit.sha }}
+        run: echo SHA=${{ github.event.sha }}
       - name: Checkout repo
         uses: actions/checkout@master
         with:
-          ref: ${{ github.commit.sha }}
+          ref: ${{ github.event.sha }}
       - name: Check history
         run: git log -n 1
       - name: GitHub Action step
