@@ -26173,7 +26173,7 @@ module.exports = require("zlib");
 
 const core = __webpack_require__(996)
 const github = __webpack_require__(828)
-const request = __webpack_require__(825);
+const fetch = __webpack_require__(366);
 
 async function run() {
   try {
@@ -26209,13 +26209,10 @@ async function run() {
     const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifacts'
     core.debug(`Fetching JSON: ${artifacts_url}`)
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
-    const artifacts = await request.request(artifacts_url, {json: true, resolveWithFullResponse: true})
-    if (artifacts.error) {
-      core.error(`JSON fetching error: ${artifacts.error}`)
-      return
-    }
+    const response = await fetch(artifacts_url)
+    const artifacts = await response.json();
     core.debug('Artifacts JSON:')
-    core.debug(artifacts.body)
+    core.debug(artifacts)
     const url = artifacts_url  // TODO: WRONG
     core.debug('Linking to:')
     core.debug(url)
