@@ -26209,16 +26209,13 @@ async function run() {
     const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifacts'
     core.debug(`Fetching JSON: ${artifacts_url}`)
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
-    var artifacts = ''
-    request.request(artifacts_url, {json: true}, (error, res, body) => {
-      if (error || res.statusCode != 200) {
-        core.error(`JSON fetching error (${res.statusCode}):\n${error}`)
-        return
-      }
-      artifacts = body
-    })
+    const artifacts = await request.request(artifacts_url, {json: true, resolveWithFullResponse: true})
+    if (artifacts.error || artifacts.res.statusCode != 200) {
+      core.error(`JSON fetching error (${artifacts.res.statusCode}):\n${artifacts.error}`)
+      return
+    }
     core.debug('Artifacts JSON:')
-    core.debug(artifacts)
+    core.debug(artifacts.body)
     const url = artifacts_url  // TODO: WRONG
     core.debug('Linking to:')
     core.debug(url)
