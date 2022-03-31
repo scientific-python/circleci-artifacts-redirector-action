@@ -51,7 +51,7 @@ async function run() {
     core.debug(artifacts)
     // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
     var url = '';
-    if (artifacts.items.count() > 0) {
+    if (artifacts.items.count > 0) {
       url = artifacts.items[0].url.split('/artifacts/')[0] + '/artifacts/' + path
     }
     else {
