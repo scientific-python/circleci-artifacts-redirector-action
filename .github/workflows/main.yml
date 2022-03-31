@@ -42,6 +42,6 @@ jobs:
       - name: Get expected commit
         run: |
           echo ${{ needs.circleci_artifacts_redirector_job.outputs.url }}
-          echo $GITHUB_SHA
+          echo ${{ github.event.sha }}
       - name: Check the URL
-        run: curl --fail ${{ needs.circleci_artifacts_redirector_job.outputs.url }} | grep $GITHUB_SHA
+        run: curl --fail ${{ needs.circleci_artifacts_redirector_job.outputs.url }} | grep ${{ github.event.sha }}
