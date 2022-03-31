@@ -12,6 +12,10 @@ jobs:
       # See README.md for usage instructions.
       - name: Checkout repo
         uses: actions/checkout@master
+        with:
+          ref: ${{ github.event.ref }}
+      - name: Check history
+        run: git log -n 1
       - name: GitHub Action step
         uses: ./
         with:
