@@ -7217,7 +7217,7 @@ Object.defineProperty(Response.prototype, Symbol.toStringTag, {
 });
 
 const INTERNALS$2 = Symbol('Request internals');
-const URL = whatwgUrl.URL;
+const URL = Url.URL || whatwgUrl.URL;
 
 // fix an issue where "format", "parse" aren't a named export for node <10
 const parse_url = Url.parse;
@@ -7480,9 +7480,17 @@ AbortError.prototype = Object.create(Error.prototype);
 AbortError.prototype.constructor = AbortError;
 AbortError.prototype.name = 'AbortError';
 
+const URL$1 = Url.URL || whatwgUrl.URL;
+
 // fix an issue where "PassThrough", "resolve" aren't a named export for node <10
 const PassThrough$1 = Stream.PassThrough;
-const resolve_url = Url.resolve;
+
+const isDomainOrSubdomain = function isDomainOrSubdomain(destination, original) {
+	const orig = new URL$1(original).hostname;
+	const dest = new URL$1(destination).hostname;
+
+	return orig === dest || orig[orig.length - dest.length - 1] === '.' && orig.endsWith(dest);
+};
 
 /**
  * Fetch function
@@ -7570,7 +7578,19 @@ function fetch(url, opts) {
 				const location = headers.get('Location');
 
 				// HTTP fetch step 5.3
-				const locationURL = location === null ? null : resolve_url(request.url, location);
+				let locationURL = null;
+				try {
+					locationURL = location === null ? null : new URL$1(location, request.url).toString();
+				} catch (err) {
+					// error here can only be invalid URL in Location: header
+					// do not throw when options.redirect == manual
+					// let the user extract the errorneous redirect URL
+					if (request.redirect !== 'manual') {
+						reject(new FetchError(`uri requested responds with an invalid redirect URL: ${location}`, 'invalid-redirect'));
+						finalize();
+						return;
+					}
+				}
 
 				// HTTP fetch step 5.5
 				switch (request.redirect) {
@@ -7617,6 +7637,12 @@ function fetch(url, opts) {
 							timeout: request.timeout,
 							size: request.size
 						};
+
+						if (!isDomainOrSubdomain(request.url, locationURL)) {
+							for (const name of ['authorization', 'www-authenticate', 'cookie', 'cookie2']) {
+								requestOpts.headers.delete(name);
+							}
+						}
 
 						// HTTP-redirect fetch step 9
 						if (res.statusCode !== 303 && request.body && getTotalBytes(request) === null) {
@@ -22576,9 +22602,25 @@ function sync (path, options) {
 // ignored, since we can never get coverage for them.
 // grab a reference to node's real process object right away
 var process = global.process
+
+const processOk = function (process) {
+  return process &&
+    typeof process === 'object' &&
+    typeof process.removeListener === 'function' &&
+    typeof process.emit === 'function' &&
+    typeof process.reallyExit === 'function' &&
+    typeof process.listeners === 'function' &&
+    typeof process.kill === 'function' &&
+    typeof process.pid === 'number' &&
+    typeof process.on === 'function'
+}
+
 // some kind of non-node environment, just no-op
-if (typeof process !== 'object' || !process) {
-  module.exports = function () {}
+/* istanbul ignore if */
+if (!processOk(process)) {
+  module.exports = function () {
+    return function () {}
+  }
 } else {
   var assert = __webpack_require__(357)
   var signals = __webpack_require__(187)
@@ -22609,8 +22651,9 @@ if (typeof process !== 'object' || !process) {
   }
 
   module.exports = function (cb, opts) {
-    if (global.process !== process) {
-      return
+    /* istanbul ignore if */
+    if (!processOk(global.process)) {
+      return function () {}
     }
     assert.equal(typeof cb, 'function', 'a callback must be provided for exit handler')
 
@@ -22636,7 +22679,7 @@ if (typeof process !== 'object' || !process) {
   }
 
   var unload = function unload () {
-    if (!loaded || global.process !== process) {
+    if (!loaded || !processOk(global.process)) {
       return
     }
     loaded = false
@@ -22653,6 +22696,7 @@ if (typeof process !== 'object' || !process) {
   module.exports.unload = unload
 
   var emit = function emit (event, code, signal) {
+    /* istanbul ignore if */
     if (emitter.emitted[event]) {
       return
     }
@@ -22664,7 +22708,8 @@ if (typeof process !== 'object' || !process) {
   var sigListeners = {}
   signals.forEach(function (sig) {
     sigListeners[sig] = function listener () {
-      if (process !== global.process) {
+      /* istanbul ignore if */
+      if (!processOk(global.process)) {
         return
       }
       // If there are no other listeners, an exit is coming!
@@ -22683,6 +22728,7 @@ if (typeof process !== 'object' || !process) {
           // so use a supported signal instead
           sig = 'SIGINT'
         }
+        /* istanbul ignore next */
         process.kill(process.pid, sig)
       }
     }
@@ -22695,7 +22741,7 @@ if (typeof process !== 'object' || !process) {
   var loaded = false
 
   var load = function load () {
-    if (loaded || process !== global.process) {
+    if (loaded || !processOk(global.process)) {
       return
     }
     loaded = true
@@ -22722,10 +22768,11 @@ if (typeof process !== 'object' || !process) {
 
   var originalProcessReallyExit = process.reallyExit
   var processReallyExit = function processReallyExit (code) {
-    if (process !== global.process) {
+    /* istanbul ignore if */
+    if (!processOk(global.process)) {
       return
     }
-    process.exitCode = code || 0
+    process.exitCode = code || /* istanbul ignore next */ 0
     emit('exit', process.exitCode, null)
     /* istanbul ignore next */
     emit('afterexit', process.exitCode, null)
@@ -22735,14 +22782,17 @@ if (typeof process !== 'object' || !process) {
 
   var originalProcessEmit = process.emit
   var processEmit = function processEmit (ev, arg) {
-    if (ev === 'exit' && process === global.process) {
+    if (ev === 'exit' && processOk(global.process)) {
+      /* istanbul ignore else */
       if (arg !== undefined) {
         process.exitCode = arg
       }
       var ret = originalProcessEmit.apply(this, arguments)
+      /* istanbul ignore next */
       emit('exit', process.exitCode, null)
       /* istanbul ignore next */
       emit('afterexit', process.exitCode, null)
+      /* istanbul ignore next */
       return ret
     } else {
       return originalProcessEmit.apply(this, arguments)
@@ -26168,8 +26218,12 @@ module.exports = require("zlib");
 //
 // After changing this file, use `ncc build index.js` to rebuild to dist/
 
+// Refs:
+// https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
+
 const core = __webpack_require__(996)
 const github = __webpack_require__(828)
+const fetch = __webpack_require__(366);
 
 async function run() {
   try {
@@ -26183,25 +26237,37 @@ async function run() {
     }
     const prepender = x => 'ci/circleci: ' + x
     circleciJobs = circleciJobs.split(',').map(prepender)
-    core.debug('Considering CircleCI jobs named:')
-    core.debug(circleciJobs)
+    core.debug(`Considering CircleCI jobs named: ${circleciJobs}`)
     if (circleciJobs.indexOf(payload.context) < 0) {
-      core.debug('Ignoring context:')
-      core.debug(payload.context)
+      core.debug(`Ignoring context: ${payload.context}`)
       return
     }
-    core.debug('Processing context and state:')
-    core.debug(payload.context)
-    core.debug(payload.state)
-    // Set the new status
     const state = payload.state
-    const buildId = payload.target_url.split('?')[0].split('/').slice(-1)[0]
-    const repoId = payload.repository.id
-    const url = 'https://' + buildId + '-' + repoId + '-gh.circle-artifacts.com/' + path
-    core.debug('Linking to:')
-    core.debug(url)
+    core.debug(`context:    ${payload.context}`)
+    core.debug(`state:      ${state}`)
+    core.debug(`target_url: ${payload.target_url}`)
+    // e.g., https://circleci.com/gh/larsoner/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
+    // Set the new status
+    const parts = payload.target_url.split('?')[0].split('/')
+    const orgId = parts.slice(-3)[0]
+    const repoId = parts.slice(-2)[0]
+    const buildId = parts.slice(-1)[0]
+    core.debug(`org:   ${orgId}`)
+    core.debug(`repo:  ${repoId}`)
+    core.debug(`build: ${buildId}`)
+    // Get the URLs
+    const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifacts'
+    core.debug(`Fetching JSON: ${artifacts_url}`)
+    // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
+    const response = await fetch(artifacts_url)
+    const artifacts = await response.json()
+    core.debug('Artifacts JSON:')
+    core.debug(artifacts)
+    // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
+    const url = artifacts.items[0].url.split('/artifacts/')[0] + '/artifacts/' + path
+    core.debug(`Linking to: ${url}`)
     core.debug((new Date()).toTimeString())
-    core.setOutput("url", url);
+    core.setOutput("url", url)
     const client = new github.GitHub(token)
     var description = '';
     if (payload.state === 'pending') {
@@ -26522,7 +26588,7 @@ var isPlainObject = __webpack_require__(553);
 var nodeFetch = _interopDefault(__webpack_require__(366));
 var requestError = __webpack_require__(38);
 
-const VERSION = "5.6.1";
+const VERSION = "5.6.3";
 
 function getBufferResponse(response) {
   return response.arrayBuffer();
