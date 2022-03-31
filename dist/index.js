@@ -26173,6 +26173,7 @@ module.exports = require("zlib");
 
 const core = __webpack_require__(996)
 const github = __webpack_require__(828)
+const request = __webpack_require__(825);
 
 async function run() {
   try {
@@ -26186,28 +26187,35 @@ async function run() {
     }
     const prepender = x => 'ci/circleci: ' + x
     circleciJobs = circleciJobs.split(',').map(prepender)
-    core.debug('Considering CircleCI jobs named: ${circleciJobs}')
+    core.debug(`Considering CircleCI jobs named: ${circleciJobs}`)
     if (circleciJobs.indexOf(payload.context) < 0) {
-      core.debug('Ignoring context: ${payload.context}')
+      core.debug(`Ignoring context: ${payload.context}`)
       return
     }
     const state = payload.state
-    core.debug('context:    ${payload.context}')
-    core.debug('state:      ${state}')
-    core.debug('target_url: ${payload.target_url}')
+    core.debug(`context:    ${payload.context}`)
+    core.debug(`state:      ${state}`)
+    core.debug(`target_url: ${payload.target_url}`)
     // e.g., https://circleci.com/gh/larsoner/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
     // Set the new status
     const parts = payload.target_url.split('?')[0].split('/')
     const orgId = parts[-3]
     const repoId = parts[-2]
     const buildId = parts[-1]
-    core.debug('org:   ${orgId}')
-    core.debug('repo:  ${repoId}')
-    core.debug('build: ${buildId}')
+    core.debug(`org:   ${orgId}`)
+    core.debug(`repo:  ${repoId}`)
+    core.debug(`build: ${buildId}`)
     // Get the URLs
     const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifacts'
-    core.debug('Fetching JSON: ${artifacts_url}')
-    const artifacts = await JSON.parse(core.request('GET ${artifacts_url}'))
+    core.debug(`Fetching JSON: ${artifacts_url}`)
+    var artifacts = ''
+    request(artifacts_url, {json: true}, (error, res, body) => {
+      if (error || res.statusCode != 200) {
+        core.error(`JSON fetching error (${res.statusCode}):\n${error}`)
+        return
+      }
+      artifacts = body
+    })
     core.debug('Artifacts JSON:')
     core.debug(artifacts)
     const url = artifacts_url  // TODO: WRONG
