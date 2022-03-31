@@ -30,12 +30,16 @@ async function run() {
       return
     }
     core.debug('Processing context and state:')
-    core.debug(payload.context)
-    core.debug(payload.state)
-    // Set the new status
     const state = payload.state
+    core.debug(payload.context)
+    core.debug(state)
+    // Set the new status
     const buildId = payload.target_url.split('?')[0].split('/').slice(-1)[0]
     const repoId = payload.repository.id
+    core.debug('Build, repo ID:')
+    core.debug(buildId)
+    core.debug(repoId)
+    // Get the URLs
     const url = 'https://' + buildId + '-' + repoId + '-gh.circle-artifacts.com/' + path
     core.debug('Linking to:')
     core.debug(url)
