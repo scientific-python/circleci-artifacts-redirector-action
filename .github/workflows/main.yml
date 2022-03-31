@@ -37,6 +37,11 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@master
-      - name: Check the URL
+        with:
+          ref: ${{ github.event.sha }}
+      - name: Get expected commit
         run: |
-          curl --fail ${{ needs.circleci_artifacts_redirector_job.outputs.url }} | grep $GITHUB_SHA
+          echo ${{ needs.circleci_artifacts_redirector_job.outputs.url }}
+          echo $GITHUB_SHA
+      - name: Check the URL
+        run: curl --fail ${{ needs.circleci_artifacts_redirector_job.outputs.url }} | grep $GITHUB_SHA
