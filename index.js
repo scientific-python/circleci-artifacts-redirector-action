@@ -45,11 +45,13 @@ async function run() {
     const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifactsy'
     core.debug(`Fetching JSON: ${artifacts_url}`)
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
+    var response, artifacts;
     try {
-      const response = await fetch(artifacts_url)
-      const artifacts = await response.json()
+      response = await fetch(artifacts_url)
+      artifacts = await response.json()
     } catch (error) {
       core.error(`JSON fetching error:\n${error}`)
+      return
     }
     core.debug('Artifacts JSON:')
     core.debug(artifacts)
