@@ -44,4 +44,4 @@ jobs:
           echo ${{ needs.circleci_artifacts_redirector_job.outputs.url }}
           echo ${{ github.event.sha }}
       - name: Check the URL
-        run: curl --fail ${{ needs.circleci_artifacts_redirector_job.outputs.url }} | grep ${{ github.event.sha }}
+        run: curl -L --fail ${{ needs.circleci_artifacts_redirector_job.outputs.url }} | grep ${{ github.event.sha }}
