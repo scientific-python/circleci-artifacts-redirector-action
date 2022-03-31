@@ -35,17 +35,18 @@ async function run() {
     // e.g., https://circleci.com/gh/larsoner/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
     // Set the new status
     const parts = payload.target_url.split('?')[0].split('/')
-    const orgId = parts[-3]
-    const repoId = parts[-2]
-    const buildId = parts[-1]
+    const orgId = parts.slice(-3)[0]
+    const repoId = parts.slice(-2)[0]
+    const buildId = parts.slice(-1)[0]
     core.debug(`org:   ${orgId}`)
     core.debug(`repo:  ${repoId}`)
     core.debug(`build: ${buildId}`)
     // Get the URLs
     const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifacts'
     core.debug(`Fetching JSON: ${artifacts_url}`)
+    // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
     var artifacts = ''
-    request(artifacts_url, {json: true}, (error, res, body) => {
+    request.request(artifacts_url, {json: true}, (error, res, body) => {
       if (error || res.statusCode != 200) {
         core.error(`JSON fetching error (${res.statusCode}):\n${error}`)
         return
