@@ -26168,6 +26168,9 @@ module.exports = require("zlib");
 //
 // After changing this file, use `ncc build index.js` to rebuild to dist/
 
+// Refs:
+// https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
+
 const core = __webpack_require__(996)
 const github = __webpack_require__(828)
 
@@ -26191,12 +26194,16 @@ async function run() {
       return
     }
     core.debug('Processing context and state:')
-    core.debug(payload.context)
-    core.debug(payload.state)
-    // Set the new status
     const state = payload.state
+    core.debug(payload.context)
+    core.debug(state)
+    // Set the new status
     const buildId = payload.target_url.split('?')[0].split('/').slice(-1)[0]
     const repoId = payload.repository.id
+    core.debug('Build, repo ID:')
+    core.debug(buildId)
+    core.debug(repoId)
+    // Get the URLs
     const url = 'https://' + buildId + '-' + repoId + '-gh.circle-artifacts.com/' + path
     core.debug('Linking to:')
     core.debug(url)
