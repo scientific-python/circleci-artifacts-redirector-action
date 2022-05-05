@@ -37,7 +37,7 @@ jobs:
 - The `job-title` corresponds to the name of the action job as it will appear
   on github. It is **not** the circle-ci job you want the artifacts for
   (this is `circleci-jobs`). This field is optional.
-- If you have trouble, try [enabling debugging logging](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/managing-a-workflow-run#enabling-debug-logging)
+- If you have trouble, try [enabling debugging logging](https://docs.github.com/en/actions/monitoring-and-troubleshooting-workflows/enabling-debug-logging)
   for the action by setting the secret `ACTIONS_STEP_DEBUG=true`.
 
 > **Note**: The standard PR-to-main-repo-from-branch-in-a-fork workflow might
