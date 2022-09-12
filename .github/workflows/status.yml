@@ -1,13 +1,5 @@
 on: [status]
 jobs:
-  yaml_lint:
-    name: YAML Lint
-    steps:
-      - name: Lint YAML
-        uses: ibiqlik/action-yamllint@v3
-        with:
-          file_or_dir: .github/workflows
-
   circleci_artifacts_redirector_status_job:
     runs-on: ubuntu-latest
     if: "${{ github.event.context == 'ci/circleci: build' }}"
