@@ -3,7 +3,6 @@ jobs:
   circleci_artifacts_redirector_status_job:
     runs-on: ubuntu-latest
     name: CircleCI artifacts redirector status
-    if: github.event.context == 'ci/circleci: build'
     outputs:
       url: ${{ steps.run-circleci-artifacts-redirector.outputs.url }}
     steps:
@@ -15,6 +14,9 @@ jobs:
         env:
           GITHUB_EVENT: ${{ toJSON(github.event) }}
         run: echo "$GITHUB_EVENT"
+      - name: Check conditional
+        run: |
+          echo "${{ github.event.context == 'ci/circleci: build' }}"
       - name: Print expected ref
         run: echo SHA=${{ github.event.sha }}
       - name: Checkout repo
