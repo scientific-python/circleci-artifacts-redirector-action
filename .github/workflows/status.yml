@@ -42,6 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [circleci_artifacts_redirector_status_job]
     name: Use the status output
+    if: github.event.state != 'pending'
     steps:
       - name: Checkout repo
         uses: actions/checkout@master
