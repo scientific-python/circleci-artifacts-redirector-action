@@ -30,7 +30,7 @@ jobs:
 - The `if: "${{ github.event.context == 'ci/circleci: build_doc' }}"`
   conditional in the `job` is helpful to limit the number of redirector
   actions that your repo will run to avoid polluting your GitHub actions
-  logs. The `circleci-jobs` should be labeled correspondingly.
+  logs. The `circleci-jobs` (below) should be labeled correspondingly.
 - The `artifact-path` should point to an artifact path from your CircleCI
   build. This is typically whatever follows the CircleCI artifact root path,
   for example `0/test_artifacts/root_artifact.md`.
