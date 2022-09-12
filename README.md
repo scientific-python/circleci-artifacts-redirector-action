@@ -23,6 +23,7 @@ jobs:
           circleci-jobs: build_doc
           job-title: Check the rendered docs here!
       - name: Check the URL
+        if: github.event.status != 'pending'
         run: |
           curl --fail ${{ steps.step1.outputs.url }} | grep $GITHUB_SHA
 
@@ -43,6 +44,10 @@ jobs:
 - The `job-title` corresponds to the name of the action job as it will appear
   on github. It is **not** the circle-ci job you want the artifacts for
   (this is `circleci-jobs`). This field is optional.
+- The action has an outtput ``url`` that you can use in downstream steps, but
+  this URL will only point to a valid artifact once the job is complete, i.e.,
+  `github.event.status` is either `'success'`, `'fail'`, or (maybe) `'error'`,
+  not `'pending'`.
 - If you have trouble, try [enabling debugging logging](https://docs.github.com/en/actions/monitoring-and-troubleshooting-workflows/enabling-debug-logging)
   for the action by setting the secret `ACTIONS_STEP_DEBUG=true`.
 
