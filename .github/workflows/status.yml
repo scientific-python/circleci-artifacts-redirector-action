@@ -3,6 +3,7 @@ jobs:
   circleci_artifacts_redirector_status_job:
     runs-on: ubuntu-latest
     name: CircleCI artifacts redirector status
+    if: github.event.context == 'ci/circleci: build'
     outputs:
       url: ${{ steps.run-circleci-artifacts-redirector.outputs.url }}
     steps:
