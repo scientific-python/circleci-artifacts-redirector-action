@@ -1,8 +1,8 @@
 on: [status]
 jobs:
-  circleci_artifacts_redirector_job:
+  circleci_artifacts_redirector_status_job:
     runs-on: ubuntu-latest
-    name: Run CircleCI artifacts redirector
+    name: CircleCI artifacts redirector status
     outputs:
       url: ${{ steps.run-circleci-artifacts-redirector.outputs.url }}
     steps:
@@ -27,13 +27,13 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
-          job-title: "See artifact here!"
+          job-title: "See artifact here (status)!"
         id: run-circleci-artifacts-redirector
 
-  use_outputs_job:
+  use_outputs_status_job:
     runs-on: ubuntu-latest
-    needs: [circleci_artifacts_redirector_job]
-    name: Use the output
+    needs: [circleci_artifacts_redirector_status_job]
+    name: Use the status output
     steps:
       - name: Checkout repo
         uses: actions/checkout@master
@@ -41,7 +41,7 @@ jobs:
           ref: ${{ github.event.sha }}
       - name: Get expected commit
         run: |
-          echo ${{ needs.circleci_artifacts_redirector_job.outputs.url }}
+          echo ${{ needs.circleci_artifacts_redirector_status_job.outputs.url }}
           echo ${{ github.event.sha }}
       - name: Check the URL
-        run: curl -L --fail ${{ needs.circleci_artifacts_redirector_job.outputs.url }} | grep ${{ github.event.sha }}
+        run: curl -L --fail ${{ needs.circleci_artifacts_redirector_status_job.outputs.url }} | grep ${{ github.event.sha }}
