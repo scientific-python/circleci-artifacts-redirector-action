@@ -37,7 +37,7 @@ jobs:
       - run: |
           set -ex
           curl -X POST -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${CIRCLE_PROJECT_REPONAME}/${CIRCLE_PROJECT_USERNAME}/dispatches \
+            https://api.github.com/repos/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/dispatches \
             -d '{"event_type":"circleci-artifacts-redirector-action"}'
 
 workflows:
