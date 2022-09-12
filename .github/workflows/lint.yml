@@ -19,3 +19,4 @@ jobs:
         with:
           file_or_dir: .github/workflows
           no_warnings: true
+          config: .yamllint.yml
