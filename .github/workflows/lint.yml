@@ -12,6 +12,7 @@ on:
 jobs:
   yaml_lint:
     name: YAML
+    runs-on: ubuntu-latest
     steps:
       - uses: ibiqlik/action-yamllint@v3
         with:
