@@ -1,5 +1,5 @@
 on: [status]
-  if: ${{ github.event.context == 'ci/circleci: build' }}
+  if: "${{ github.event.context == 'ci/circleci: build' }}"
 jobs:
   circleci_artifacts_redirector_status_job:
     runs-on: ubuntu-latest
