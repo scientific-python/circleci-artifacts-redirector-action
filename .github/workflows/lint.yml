@@ -1,0 +1,22 @@
+name: 'Lint'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.ref }}
+  cancel-in-progress: true
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+jobs:
+  yaml_lint:
+    name: YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: .github/workflows
+          no_warnings: true
+          config_file: .yamllint.yml
