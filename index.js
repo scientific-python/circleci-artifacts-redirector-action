@@ -60,7 +60,7 @@ async function run() {
     core.debug(`Linking to: ${url}`)
     core.debug((new Date()).toTimeString())
     core.setOutput("url", url)
-    const client = new github.GitHub(token)
+    const client = github.getOctokit(token)
     var description = '';
     if (payload.state === 'pending') {
       description = 'Waiting for CircleCI ...'
