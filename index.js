@@ -72,7 +72,7 @@ async function run() {
     if (job_title === '') {
       job_title = payload.context + ' artifact'
     }
-    return client.context.repo.createStatus({
+    return client.rest.repos.createStatus({
       repo: github.context.repo.repo,
       owner: github.context.repo.owner,
       sha: payload.sha,
