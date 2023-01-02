@@ -60,7 +60,7 @@ async function run() {
     core.debug(`Linking to: ${url}`)
     core.debug((new Date()).toTimeString())
     core.setOutput("url", url)
-    const client = new github.GitHub(token)
+    const client = github.getOctokit(token)
     var description = '';
     if (payload.state === 'pending') {
       description = 'Waiting for CircleCI ...'
@@ -72,7 +72,7 @@ async function run() {
     if (job_title === '') {
       job_title = payload.context + ' artifact'
     }
-    return client.repos.createStatus({
+    return client.rest.repos.createCommitStatus({
       repo: github.context.repo.repo,
       owner: github.context.repo.owner,
       sha: payload.sha,
