@@ -14,6 +14,9 @@ inputs:
   circleci-jobs:
     description: 'Comma-separated list of CircleCI jobs to monitor (default is "build_docs,build,doc")'
     required: false
+  api-token:
+    description: 'CircleCI API token secret, only needed if the repository is private'
+    required: false
   job-title:
     description: 'The name of the job, as it will render on the PR GUI (default is "<name of CI job> artifact)"'
     required: false
