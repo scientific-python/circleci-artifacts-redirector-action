@@ -8,10 +8,15 @@ Sample `.github/workflows/main.yml`:
 
 ```YAML
 on: [status]
+
+permissions: read-all
+
 jobs:
   circleci_artifacts_redirector_job:
     runs-on: ubuntu-latest
     if: "${{ github.event.context == 'ci/circleci: build_doc' }}"
+    permissions:
+      statuses: write
     name: Run CircleCI artifacts redirector
     steps:
       - name: GitHub Action step
