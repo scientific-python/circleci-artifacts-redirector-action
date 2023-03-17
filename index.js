@@ -56,7 +56,8 @@ async function run() {
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
     const response = await fetch(artifacts_url, headers)
     const artifacts = await response.json()
-    core.debug(`Artifacts JSON (status=${response.status}):`)
+    const status = await response.status
+    core.debug(`Artifacts JSON (status=${status}):`)
     core.debug(artifacts)
     // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
     var url = '';
