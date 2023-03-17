@@ -33,6 +33,7 @@ async function run() {
     core.debug(`context:    ${payload.context}`)
     core.debug(`state:      ${state}`)
     core.debug(`target_url: ${payload.target_url}`)
+    // e.g., https://circleci.com/gh/mne-tools/mne-python/53315
     // e.g., https://circleci.com/gh/larsoner/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
     // Set the new status
     const parts = payload.target_url.split('?')[0].split('/')
@@ -43,7 +44,7 @@ async function run() {
     core.debug(`repo:  ${repoId}`)
     core.debug(`build: ${buildId}`)
     // Get the URLs
-    const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifacts'
+    const artifacts_url = `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
     core.debug(`Fetching JSON: ${artifacts_url}`)
     let headers;
     if (apiToken == null) {
