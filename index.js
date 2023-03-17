@@ -52,7 +52,11 @@ async function run() {
       core.debug('Successfully read CircleCI API token')
     }
     apiToken = ''
-    const headers = {'Circle-Token': apiToken}
+    const headers = {
+      'Circle-Token': apiToken,
+      'Accept': 'application/json',
+      'user-agent': 'curl/7.85.0'
+    }
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
     const response = await fetch(artifacts_url, { headers })
     const artifacts = await response.json()
