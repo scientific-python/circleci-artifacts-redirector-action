@@ -46,8 +46,15 @@ async function run() {
     // Get the URLs
     const artifacts_url = `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
     core.debug(`Fetching JSON: ${artifacts_url}`)
+    let headers;
+    if (apiToken == null || apiToken == '') {
+      apiToken = ''
+    } else {
+      core.debug('Successfully read CircleCI API token')
+    }
+    headers = {'Circle-Token': apiToken}
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
-    const response = await fetch(artifacts_url, { headers: {'Circle-Token': apiToken } })
+    const response = await fetch(artifacts_url, { headers: headers })
     const artifacts = await response.json()
     const status = await response.status
     core.debug(`Artifacts JSON (status=${status}):`)
