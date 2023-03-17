@@ -22,7 +22,7 @@ async function run() {
     if (circleciJobs === '') {
       circleciJobs = 'build_docs,doc,build'
     }
-    const prepender = x => 'ci/circleci: ' + x
+    const prepender = x => `ci/circleci: ${x}`
     circleciJobs = circleciJobs.split(',').map(prepender)
     core.debug(`Considering CircleCI jobs named: ${circleciJobs}`)
     if (circleciJobs.indexOf(payload.context) < 0) {
@@ -47,7 +47,7 @@ async function run() {
     const artifacts_url = `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
     core.debug(`Fetching JSON: ${artifacts_url}`)
     let headers;
-    if (apiToken == null or apiToken == '') {
+    if (apiToken == null || apiToken == '') {
       headers = {}
     } else {
       core.debug('Successfully read CircleCI API token')
@@ -61,7 +61,7 @@ async function run() {
     // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
     var url = '';
     if (artifacts.items.length > 0) {
-      url = artifacts.items[0].url.split('/artifacts/')[0] + '/artifacts/' + path
+      url = `${artifacts.items[0].url.split('/artifacts/')[0]}/artifacts/${path}`
     }
     else {
       url = payload.target_url;
@@ -75,11 +75,11 @@ async function run() {
       description = 'Waiting for CircleCI ...'
     }
     else {
-      description = 'Link to ' + path
+      description = `Link to ${path}`
     }
     var job_title = core.getInput('job-title', {required: false})
     if (job_title === '') {
-      job_title = payload.context + ' artifact'
+      job_title = `${payload.context} artifact`
     }
     return client.rest.repos.createCommitStatus({
       repo: github.context.repo.repo,
