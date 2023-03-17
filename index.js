@@ -17,7 +17,7 @@ async function run() {
     const payload = github.context.payload
     const path = core.getInput('artifact-path', {required: true})
     const token = core.getInput('repo-token', {required: true})
-    const apiToken = core.getInput('api-token', {required: false});
+    const apiToken = core.getInput('api-token', {required: false})
     var circleciJobs = core.getInput('circleci-jobs', {required: false})
     if (circleciJobs === '') {
       circleciJobs = 'build_docs,doc,build'
@@ -46,7 +46,7 @@ async function run() {
     // Get the URLs
     const artifacts_url = `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
     core.debug(`Fetching JSON: ${artifacts_url}`)
-    const headers = {'Circle-Token': apiToken, 'Accept': 'application/json', 'user-agent': 'curl/7.85.0'}
+    const headers = {'Circle-Token': `${apiToken}`, 'Accept': 'application/json', 'user-agent': 'curl/7.85.0'}
     if (apiToken != null && apiToken != '') {
       core.debug('Successfully read CircleCI API token')
     }
