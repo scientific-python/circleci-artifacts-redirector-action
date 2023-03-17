@@ -47,6 +47,7 @@ async function run() {
     const artifacts_url = `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
     core.debug(`Fetching JSON: ${artifacts_url}`)
     const headers = {'Circle-Token': `${apiToken}`, 'Accept': 'application/json', 'user-agent': 'curl/7.85.0'}
+    core.debug(`${headers}`)
     if (apiToken != null && apiToken != '') {
       core.debug(`Successfully read CircleCI API token ${apiToken}`)
     }
