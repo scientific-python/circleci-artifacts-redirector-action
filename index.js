@@ -17,7 +17,7 @@ async function run() {
     const payload = github.context.payload
     const path = core.getInput('artifact-path', {required: true})
     const token = core.getInput('repo-token', {required: true})
-    const apiToken = core.getInput('api-token', {required: true});
+    var apiToken = core.getInput('api-token', {required: true});
     var circleciJobs = core.getInput('circleci-jobs', {required: false})
     if (circleciJobs === '') {
       circleciJobs = 'build_docs,doc,build'
