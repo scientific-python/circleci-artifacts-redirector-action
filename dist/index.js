@@ -8009,7 +8009,7 @@ async function run() {
     }
     headers = {'Circle-Token': apiToken}
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
-    const response = await fetch(artifacts_url, { headers: headers })
+    const response = await fetch(artifacts_url, { headers })
     const artifacts = await response.json()
     const status = await response.status
     core.debug(`Artifacts JSON (status=${status}):`)
