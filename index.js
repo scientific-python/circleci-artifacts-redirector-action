@@ -46,7 +46,6 @@ async function run() {
     // Get the URLs
     const artifacts_url = `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
     core.debug(`Fetching JSON: ${artifacts_url}`)
-    core.debug(`${headers}`)
     if (apiToken == null || apiToken == '') {
       apiToken = 'null'
     }
