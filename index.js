@@ -17,12 +17,12 @@ async function run() {
     const payload = github.context.payload
     const path = core.getInput('artifact-path', {required: true})
     const token = core.getInput('repo-token', {required: true})
-    const apiToken = core.getInput('api-token', {required: false});
+    var apiToken = core.getInput('api-token', {required: false})
     var circleciJobs = core.getInput('circleci-jobs', {required: false})
     if (circleciJobs === '') {
       circleciJobs = 'build_docs,doc,build'
     }
-    const prepender = x => 'ci/circleci: ' + x
+    const prepender = x => `ci/circleci: ${x}`
     circleciJobs = circleciJobs.split(',').map(prepender)
     core.debug(`Considering CircleCI jobs named: ${circleciJobs}`)
     if (circleciJobs.indexOf(payload.context) < 0) {
@@ -33,6 +33,7 @@ async function run() {
     core.debug(`context:    ${payload.context}`)
     core.debug(`state:      ${state}`)
     core.debug(`target_url: ${payload.target_url}`)
+    // e.g., https://circleci.com/gh/mne-tools/mne-python/53315
     // e.g., https://circleci.com/gh/larsoner/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
     // Set the new status
     const parts = payload.target_url.split('?')[0].split('/')
@@ -43,24 +44,24 @@ async function run() {
     core.debug(`repo:  ${repoId}`)
     core.debug(`build: ${buildId}`)
     // Get the URLs
-    const artifacts_url = 'https://circleci.com/api/v2/project/gh/' + orgId + '/' + repoId + '/' + buildId + '/artifacts'
+    const artifacts_url = `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
     core.debug(`Fetching JSON: ${artifacts_url}`)
-    let headers;
-    if (apiToken == null) {
-      headers = {}
-    } else {
-      core.debug('Successfully read CircleCI API token')
-      headers = {'Circle-Token': apiToken }
+    if (apiToken == null || apiToken == '') {
+      apiToken = 'null'
     }
+    else {
+      core.debug(`Successfully read CircleCI API token ${apiToken}`)
+    }
+    const headers = {'Circle-Token': apiToken, 'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
     // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
     const response = await fetch(artifacts_url, {headers})
     const artifacts = await response.json()
-    core.debug('Artifacts JSON:')
+    core.debug(`Artifacts JSON (status=${response.status}):`)
     core.debug(artifacts)
     // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
     var url = '';
     if (artifacts.items.length > 0) {
-      url = artifacts.items[0].url.split('/artifacts/')[0] + '/artifacts/' + path
+      url = `${artifacts.items[0].url.split('/artifacts/')[0]}/artifacts/${path}`
     }
     else {
       url = payload.target_url;
@@ -74,11 +75,11 @@ async function run() {
       description = 'Waiting for CircleCI ...'
     }
     else {
-      description = 'Link to ' + path
+      description = `Link to ${path}`
     }
     var job_title = core.getInput('job-title', {required: false})
     if (job_title === '') {
-      job_title = payload.context + ' artifact'
+      job_title = `${payload.context} artifact`
     }
     return client.rest.repos.createCommitStatus({
       repo: github.context.repo.repo,
