@@ -24,6 +24,7 @@ jobs:
         uses: larsoner/circleci-artifacts-redirector-action@master
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          api-token: ${{ secrets.CIRCLECI_TOKEN }}
           artifact-path: 0/test_artifacts/root_artifact.md
           circleci-jobs: build_doc
           job-title: Check the rendered docs here!
@@ -37,6 +38,13 @@ jobs:
   conditional in the `job` is helpful to limit the number of redirector
   actions that your repo will run to avoid polluting your GitHub actions
   logs. The `circleci-jobs` (below) should be labeled correspondingly.
+- The `api-token` needs to be a token whose public key has been added
+  to the GitHub secrets of your repository and the private key added as a
+  CircleCI project API token with admin permissions, e.g. for the
+  MNE-Python project this would be:
+
+  - https://github.com/mne-tools/mne-python/settings/secrets/actions
+  - https://app.circleci.com/settings/project/github/mne-tools/mne-python/api
 - The `artifact-path` should point to an artifact path from your CircleCI
   build. This is typically whatever follows the CircleCI artifact root path,
   for example `0/test_artifacts/root_artifact.md`.
