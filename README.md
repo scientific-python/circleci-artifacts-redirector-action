@@ -38,13 +38,12 @@ jobs:
   conditional in the `job` is helpful to limit the number of redirector
   actions that your repo will run to avoid polluting your GitHub actions
   logs. The `circleci-jobs` (below) should be labeled correspondingly.
-- The `api-token` needs to be a token whose public key has been added
-  to the GitHub secrets of your repository and the private key added as a
-  CircleCI project API token with admin permissions, e.g. for the
-  MNE-Python project this would be:
-
-  - https://github.com/mne-tools/mne-python/settings/secrets/actions
-  - https://app.circleci.com/settings/project/github/mne-tools/mne-python/api
+- The `api-token` needs to be a
+  *[CircleCI personal API token](https://app.circleci.com/settings/user/tokens)*
+  (not a *project token* as it is not supported yet in API v2!) whose value
+  has been added to the GitHub secrets of your repository (e.g., as 
+  `CIRCLE_TOKEN`), e.g. for the MNE-Python project this would be
+  https://github.com/mne-tools/mne-python/settings/secrets/actions.
 - The `artifact-path` should point to an artifact path from your CircleCI
   build. This is typically whatever follows the CircleCI artifact root path,
   for example `0/test_artifacts/root_artifact.md`.
