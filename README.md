@@ -42,8 +42,9 @@ jobs:
   *[CircleCI personal API token](https://app.circleci.com/settings/user/tokens)*
   (not a *project token* as it is not supported yet in API v2!) whose value
   has been added to the GitHub secrets of your repository (e.g., as 
-  `CIRCLE_TOKEN`), e.g. for the MNE-Python project this would be
-  https://github.com/mne-tools/mne-python/settings/secrets/actions.
+  `CIRCLE_TOKEN`), e.g. for the MNE-Python *project* this would be
+  https://github.com/mne-tools/mne-python/settings/secrets/actions and for the
+  *organization* it would be https://github.com/organizations/mne-tools/settings/secrets/actions (pick whichever scope makes sense for you).
 - The `artifact-path` should point to an artifact path from your CircleCI
   build. This is typically whatever follows the CircleCI artifact root path,
   for example `0/test_artifacts/root_artifact.md`.
