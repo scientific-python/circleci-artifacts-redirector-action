@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: GitHub Action step
         id: step1
-        uses: larsoner/circleci-artifacts-redirector-action@master
+        uses: larsoner/circleci-artifacts-redirector-action@v1
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           api-token: ${{ secrets.CIRCLECI_TOKEN }}
@@ -41,7 +41,7 @@ jobs:
 - The `api-token` needs to be a
   *[CircleCI personal API token](https://app.circleci.com/settings/user/tokens)*
   (not a *project token* as it is not supported yet in API v2!) whose value
-  has been added to the GitHub secrets of your repository (e.g., as 
+  has been added to the GitHub secrets of your repository (e.g., as
   `CIRCLE_TOKEN`), e.g. for the MNE-Python *project* this would be
   https://github.com/mne-tools/mne-python/settings/secrets/actions and for the
   *organization* it would be https://github.com/organizations/mne-tools/settings/secrets/actions (pick whichever scope makes sense for you).
