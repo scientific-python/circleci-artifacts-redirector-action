@@ -7989,7 +7989,7 @@ async function run() {
     core.debug(`state:      ${state}`)
     core.debug(`target_url: ${payload.target_url}`)
     // e.g., https://circleci.com/gh/mne-tools/mne-python/53315
-    // e.g., https://circleci.com/gh/larsoner/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
+    // e.g., https://circleci.com/gh/scientific-python/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
     // Set the new status
     const parts = payload.target_url.split('?')[0].split('/')
     const orgId = parts.slice(-3)[0]
@@ -8008,7 +8008,7 @@ async function run() {
       core.debug(`Successfully read CircleCI API token ${apiToken}`)
     }
     const headers = {'Circle-Token': apiToken, 'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
-    // e.g., https://circleci.com/api/v2/project/gh/larsoner/circleci-artifacts-redirector-action/94/artifacts
+    // e.g., https://circleci.com/api/v2/project/gh/scientific-python/circleci-artifacts-redirector-action/94/artifacts
     const response = await fetch(artifacts_url, {headers})
     const artifacts = await response.json()
     core.debug(`Artifacts JSON (status=${response.status}):`)
