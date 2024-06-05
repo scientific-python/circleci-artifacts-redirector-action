@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: GitHub Action step
         id: step1
-        uses: larsoner/circleci-artifacts-redirector-action@v1
+        uses: scientific-python/circleci-artifacts-redirector-action@v1
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           api-token: ${{ secrets.CIRCLECI_TOKEN }}
