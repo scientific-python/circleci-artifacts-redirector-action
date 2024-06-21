@@ -86,4 +86,6 @@ customization options.
 ## Contributing
 
 Make sure you have done `npm install` to get all dependencies and used
-`ncc build index.js` before committing and opening a PR.
+`ncc build index.js` before committing and opening a PR. On Ubuntu you might
+need to `export NODE_OPTIONS=--openssl-legacy-provider` before the `ncc build`
+step.
