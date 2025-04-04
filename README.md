@@ -39,9 +39,9 @@ jobs:
   actions that your repo will run to avoid polluting your GitHub actions
   logs. The `circleci-jobs` (below) should be labeled correspondingly.
 - The `api-token` needs to be a
-  *[CircleCI personal API token](https://app.circleci.com/settings/user/tokens)*
-  (not a *project token* as it is not supported yet in API v2!) whose value
-  has been added to the GitHub secrets of your repository (e.g., as
+   [CircleCI personal API token](https://app.circleci.com/settings/user/tokens)
+  or a [CircleCI project API token](https://circleci.com/docs/managing-api-tokens/#creating-a-project-api-token)
+  whose value has been added to the GitHub secrets of your repository (e.g., as
   `CIRCLE_TOKEN`), e.g. for the MNE-Python *project* this would be
   https://github.com/mne-tools/mne-python/settings/secrets/actions and for the
   *organization* it would be https://github.com/organizations/mne-tools/settings/secrets/actions (pick whichever scope makes sense for you).
