@@ -3,7 +3,7 @@ node_modules/
 
 # Editors
 .vscode
-.idea
+.idea/
 
 # Logs
 logs
