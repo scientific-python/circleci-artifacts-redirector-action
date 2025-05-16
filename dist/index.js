@@ -7991,15 +7991,48 @@ async function run() {
     // e.g., https://circleci.com/gh/mne-tools/mne-python/53315
     // e.g., https://circleci.com/gh/scientific-python/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
     // Set the new status
-    const parts = payload.target_url.split('?')[0].split('/')
-    const orgId = parts.slice(-3)[0]
-    const repoId = parts.slice(-2)[0]
-    const buildId = parts.slice(-1)[0]
-    core.debug(`org:   ${orgId}`)
-    core.debug(`repo:  ${repoId}`)
-    core.debug(`build: ${buildId}`)
-    // Get the URLs
-    const artifacts_url = `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
+    let artifacts_url = '';
+    const target = payload.target_url.split('?')[0];   // strip any ?utm=…
+
+    if (target.includes('/pipelines/circleci/')) {
+      // ───── New GitHub‑App URL ───────────────────────────────────────────
+      // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
+      const workflowId = target.split('/').pop();
+      core.debug(`workflow: ${workflowId}`);
+
+      // 1. Get the jobs that belong to this workflow
+      const jobsRes = await fetch(
+        `https://circleci.com/api/v2/workflow/${workflowId}/job`,
+        { headers: { 'Circle-Token': apiToken } }
+      );
+      const jobs = await jobsRes.json();
+      if (!jobs.items?.length) {
+        core.setFailed(`No jobs returned for workflow ${workflowId}`);
+        return;
+      }
+
+      // 2. Pick the first job
+      const job         = jobs.items[0];
+      const projectSlug = job.project_slug;  // "circleci/<org‑id>/<project‑id>"
+      const jobNumber   = job.job_number;
+
+      core.debug(`slug:  ${projectSlug}`);
+      core.debug(`job#:  ${jobNumber}`);
+
+      // 3. Construct the v2 artifacts endpoint
+      artifacts_url = `https://circleci.com/api/v2/project/${projectSlug}/${jobNumber}/artifacts`;
+    } else {
+      // ───── Legacy OAuth URL (…/gh/<org>/<repo>/<build>) ────────────────
+      const parts    = target.split('/');
+      const orgId    = parts.slice(-3)[0];
+      const repoId   = parts.slice(-2)[0];
+      const buildId  = parts.slice(-1)[0];
+
+      artifacts_url =
+        `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`;
+    }
+
+    core.debug(`Fetching JSON: ${artifacts_url}`);
     core.debug(`Fetching JSON: ${artifacts_url}`)
     if (apiToken == null || apiToken == '') {
       apiToken = 'null'
