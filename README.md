@@ -42,7 +42,7 @@ jobs:
    [CircleCI personal API token](https://app.circleci.com/settings/user/tokens)
   or a [CircleCI project API token](https://circleci.com/docs/managing-api-tokens/#creating-a-project-api-token)
   whose value has been added to the GitHub secrets of your repository (e.g., as
-  `CIRCLE_TOKEN`), e.g. for the MNE-Python *project* this would be
+  `CIRCLECI_TOKEN`), e.g. for the MNE-Python *project* this would be
   https://github.com/mne-tools/mne-python/settings/secrets/actions and for the
   *organization* it would be https://github.com/organizations/mne-tools/settings/secrets/actions (pick whichever scope makes sense for you).
 - The `artifact-path` should point to an artifact path from your CircleCI
@@ -85,7 +85,10 @@ customization options.
 
 ## Contributing
 
-Make sure you have done `npm install` to get all dependencies and used
-`ncc build index.js` before committing and opening a PR. On Ubuntu you might
+Make any changes needed to `package-lock.json` and `index.js` and open a PR.These changes will automatically be compiled into `dist/index.js` by the
+[autofix.ci bot](https://autofix.ci/).
+
+If you want to do the same work locally as the bot, use `npm install` to get
+all dependencies and then call `ncc build index.js`. On Ubuntu you might
 need to `export NODE_OPTIONS=--openssl-legacy-provider` before the `ncc build`
 step.
