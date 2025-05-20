@@ -8,7 +8,7 @@ on:  # yamllint disable-line rule:truthy
   # we run, green, wait, merge, then the build on `main` could fail because conda
   # has updated during the "green" and then the "build on `main`" steps
   pull_request:
-    branches: "*"
+    branches: ["*"]
 
 jobs:
   build:
@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm install
-      - run: sudo apt install ncc
+      - run: npm i -g @vercel/ncc
       - run: ncc build index.js
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
