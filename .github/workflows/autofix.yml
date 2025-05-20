@@ -11,14 +11,16 @@ on:  # yamllint disable-line rule:truthy
     branches: "*"
 
 jobs:
-  deps:
+  build:
     runs-on: ubuntu-latest
+    name: Rebuild dist
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: npm install
+      - run: apt install ncc
       - run: ncc build index.js
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
