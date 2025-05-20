@@ -1,6 +1,8 @@
 on: [status]
 jobs:
   circleci_artifacts_redirector_status_job:
+    permissions:
+      statuses: write
     runs-on: ubuntu-latest
     if: "${{ github.event.context == 'ci/circleci: build' }}"
     name: CircleCI artifacts redirector status
