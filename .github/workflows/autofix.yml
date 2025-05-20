@@ -1,0 +1,25 @@
+name: autofix.ci
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.ref }}
+  cancel-in-progress: true
+
+on:  # yamllint disable-line rule:truthy
+  # We only do this on PRs to avoid the (admittedly unlikely) scenario that
+  # we run, green, wait, merge, then the build on `main` could fail because conda
+  # has updated during the "green" and then the "build on `main`" steps
+  pull_request:
+    branches: "*"
+
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm install
+      - run: ncc build index.js
+        env:
+          NODE_OPTIONS: "--openssl-legacy-provider"
+      - uses: autofix-ci/action@551dded8c6cc8a1054039c8bc0b8b48c51dfc6ef
