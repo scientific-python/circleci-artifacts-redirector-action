@@ -25,10 +25,11 @@
   "homepage": "https://github.com/actions/javascript-action#readme",
   "dependencies": {
     "@actions/core": "^1.10.0",
-    "@actions/github": "^6.0.0"
+    "@actions/github": "^6.0.0",
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
-    "@zeit/ncc": "^0.20.5",
+    "@vercel/ncc": "^0.38.3",
     "eslint": "^6.8.0",
     "jest": "^27.5.1"
   }
