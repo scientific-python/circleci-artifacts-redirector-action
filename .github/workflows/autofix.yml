@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm install
-      - run: apt install ncc
+      - run: sudo apt install ncc
       - run: ncc build index.js
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
