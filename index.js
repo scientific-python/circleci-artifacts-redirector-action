@@ -50,7 +50,7 @@ async function run() {
         { headers: { 'Circle-Token': apiToken } }
       );
       const jobs = await jobsRes.json();
-      if (!jobs.items?.length) {
+      if (!jobs.items.length) {
         core.setFailed(`No jobs returned for workflow ${workflowId}`);
         return;
       }
