@@ -35154,6 +35154,9 @@ async function run() {
     else {
       url = payload.target_url;
     }
+    // Set root domain
+    var domain = core.getInput('domain')
+    url = `https://${domain}/output/${url.split('/output/')[1]}`
     core.debug(`Linking to: ${url}`)
     core.debug((new Date()).toTimeString())
     core.setOutput("url", url)
