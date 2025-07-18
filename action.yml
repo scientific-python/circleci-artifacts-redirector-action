@@ -20,6 +20,10 @@ inputs:
   job-title:
     description: 'The name of the job, as it will render on the PR GUI (default is "<name of CI job> artifact)"'
     required: false
+  domain:
+    description: 'The domain on which CircleCI artifacts are hosted. Defaults to output.circle-artifacts.com.'
+    required: false
+    default: 'output.circle-artifacts.com'
 outputs:
   url:
     description: 'The full redirect URL'
