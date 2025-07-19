@@ -20,6 +20,16 @@ inputs:
   job-title:
     description: 'The name of the job, as it will render on the PR GUI (default is "<name of CI job> artifact)"'
     required: false
+  domain:
+    description: |
+      The domain on which CircleCI artifacts are hosted. Defaults to
+      output.circle-artifacts.com.
+
+      Can, e.g., be set to use the Scientific Python CircleCI
+      proxy (https://github.com/scientific-python/circleci-proxy),
+      which addresses some routing issues.
+    required: false
+    default: 'output.circle-artifacts.com'
 outputs:
   url:
     description: 'The full redirect URL'
