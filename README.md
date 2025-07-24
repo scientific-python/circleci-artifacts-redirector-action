@@ -59,7 +59,7 @@ jobs:
 - Use `domain` to set where the CircleCI artifacts are hosted. It defaults to CircleCI, but the
   [Scientific Python CircleCI proxy](https://github.com/scientific-python/circleci-proxy) can be set, too,
   as it addresses some routing issues for mystmd generated outputs.
-- The action has an outtput ``url`` that you can use in downstream steps, but
+- The action has an output `url` that you can use in downstream steps, but
   this URL will only point to a valid artifact once the job is complete, i.e.,
   `github.event.status` is either `'success'`, `'fail'`, or (maybe) `'error'`,
   not `'pending'`.
