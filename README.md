@@ -4,6 +4,9 @@ GitHub Action to add a GitHub status link to a CircleCI artifact.
 
 ## Example usage
 
+Sample `.github/workflows/circleci_redirect.yml`:
+
+
 ```YAML
 on: [status]
 
@@ -26,7 +29,7 @@ jobs:
           artifact-path: 0/test_artifacts/root_artifact.md
           circleci-jobs: build_doc
           job-title: Check the rendered docs here!
-          domain: output.circle-artifacts.com  # or a proxy address to work around routing issues
+          domain:
       - name: Check the URL
         if: github.event.status != 'pending'
         run: |
