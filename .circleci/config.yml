@@ -4,7 +4,7 @@ orbs:
 jobs:
   build:
     docker:
-      - image: cmg/base:stable
+      - image: cimg/base:stable
     working_directory: ~/repo
     steps:
       - checkout
