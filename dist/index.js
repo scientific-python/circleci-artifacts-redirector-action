@@ -35863,8 +35863,7 @@ async function run() {
 
       // 1. Get the jobs that belong to this workflow
       const jobsRes = await fetch(
-        `https://circleci.com/api/v2/workflow/${workflowId}/job`,
-        { headers: { 'Circle-Token': apiToken } }
+        `https://circleci.com/api/v2/workflow/${workflowId}/job`
       );
       const jobs = await jobsRes.json();
       if (!jobs.items.length) {
