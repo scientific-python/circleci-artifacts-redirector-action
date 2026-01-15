@@ -81,7 +81,7 @@ async function run() {
         // In the case where no matching job is found, use the first job
         if (!job) {
           job = jobs.items[0];
-          core.debug(`No matching job found for ${circleciJobs.join(', ')}. Using first job: ${job.name}`);
+          core.debug(`No matching job found for ${circleciJobNames.join(', ')}. Using first job: ${job.name}`);
         }
       }
 
