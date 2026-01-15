@@ -35839,9 +35839,15 @@ async function run() {
     if (circleciJobs === '') {
       circleciJobs = 'build_docs,doc,build'
     }
+
+    // Split circleJobs into an array of job names
+    const circleciJobNames = circleciJobs.split(',')
+
+    //  Defines a variable to help prefix each job name with ci/circleci
     const prepender = x => `ci/circleci: ${x}`
-    circleciJobs = circleciJobs.split(',').map(prepender)
+    circleciJobs = circleciJobNames.map(prepender)
     core.debug(`Considering CircleCI jobs named: ${circleciJobs}`)
+
     if (circleciJobs.indexOf(payload.context) < 0) {
       core.debug(`Ignoring context: ${payload.context}`)
       return
@@ -35871,8 +35877,33 @@ async function run() {
         return;
       }
 
-      // 2. Pick the first job
-      const job         = jobs.items[0];
+      // 2. Identify and select the relevant job
+      // The simplest case is when a workflow contains only a single job, just
+      //  select the first entry
+      let job = null;
+      if (jobs.items.length === 1) {
+        job = jobs.items[0];
+        core.debug("Workflow contains one job.");
+      }
+      // If there are multiple jobs in the workflow, select the first one that
+      //  matches one of the job names passed to the action.
+      else {
+        for (const jobItem of jobs.items) {
+          core.debug(`Checking job: ${jobItem.name} against ${circleciJobNames.join(',')}`);
+          if (circleciJobNames.includes(jobItem.name)) {
+            job = jobItem;
+            break;
+          }
+        }
+
+        // In the case where no matching job is found, use the first job
+        if (job == null) {
+          job = jobs.items[0];
+          core.debug(`No matching job found for ${circleciJobNames.join(', ')}. Using first job: ${job.name}`);
+        }
+      }
+
+      // Extract the project slug and job number from the selected job
       const projectSlug = job.project_slug;  // "circleci/<org‑id>/<project‑id>"
       const jobNumber   = job.job_number;
 
