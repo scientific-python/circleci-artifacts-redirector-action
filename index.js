@@ -63,8 +63,9 @@ async function run() {
       // 2. Identify and select the relevant job
       // The simplest case is when a workflow contains only a single job, just
       //  select the first entry
+      let job= null;
       if (jobs.items.length === 1) {
-        const job = jobs.items[0];
+        job = jobs.items[0];
       }
       // If there are multiple jobs in the workflow, select the first one that
       //  matches one of the job names passed to the action.
