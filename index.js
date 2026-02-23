@@ -47,9 +47,11 @@ async function run() {
     // Set the new status
     let artifacts_url = '';
     const target = payload.target_url.split('?')[0];   // strip any ?utm=…
-      if (target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow')) {
+      if (target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow/')) {
       // ───── New GitHub‑App URL ───────────────────────────────────────────
       // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
+      // OR
+      // .../workflow/<workflow-id>
       const workflowId = target.split('/').pop();
       core.debug(`workflow: ${workflowId}`);
 
