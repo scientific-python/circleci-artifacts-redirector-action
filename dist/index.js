@@ -35852,6 +35852,10 @@ async function run() {
       core.debug(`Ignoring context: ${payload.context}`)
       return
     }
+
+    // Log the entire payload for debugging
+    console.log('Payload:', JSON.stringify(payload, null, 2));
+    
     const state = payload.state
     core.debug(`context:    ${payload.context}`)
     core.debug(`state:      ${state}`)
