@@ -36,9 +36,6 @@ async function run() {
       return
     }
 
-    // Log all payload keys for debugging
-    core.debug(`Payload keys: ${Object.keys(payload).join(', ')}`);
-
     // Read out 'state' (whether CircleCI process was successful or not), then
     //  store in debug output along with the target_url
     const state = payload.state
@@ -50,7 +47,7 @@ async function run() {
     // Set the new status
     let artifacts_url = '';
     const target = payload.target_url.split('?')[0];   // strip any ?utm=…
-    if (target.includes('/pipelines/circleci/')) {
+      if (target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow')) {
       // ───── New GitHub‑App URL ───────────────────────────────────────────
       // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
       const workflowId = target.split('/').pop();
