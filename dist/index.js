@@ -35853,9 +35853,11 @@ async function run() {
       return
     }
 
-    // Log the entire payload for debugging
-    console.log('Payload:', JSON.stringify(payload, null, 2));
-    
+    // Log all payload keys for debugging
+    core.debug(`Payload keys: ${Object.keys(payload).join(', ')}`);
+
+    // Read out 'state' (whether CircleCI process was successful or not), then
+    //  store in debug output along with the target_url
     const state = payload.state
     core.debug(`context:    ${payload.context}`)
     core.debug(`state:      ${state}`)
