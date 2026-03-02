@@ -35,6 +35,9 @@ async function run() {
       core.debug(`Ignoring context: ${payload.context}`)
       return
     }
+
+    // Read out 'state' (whether CircleCI process was successful or not), then
+    //  store in debug output along with the target_url
     const state = payload.state
     core.debug(`context:    ${payload.context}`)
     core.debug(`state:      ${state}`)
@@ -44,9 +47,11 @@ async function run() {
     // Set the new status
     let artifacts_url = '';
     const target = payload.target_url.split('?')[0];   // strip any ?utm=…
-    if (target.includes('/pipelines/circleci/')) {
+    if (target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow/')) {
       // ───── New GitHub‑App URL ───────────────────────────────────────────
       // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
+      // OR
+      // .../workflow/<workflow-id>
       const workflowId = target.split('/').pop();
       core.debug(`workflow: ${workflowId}`);
 
