@@ -81,6 +81,8 @@ jobs:
 
 Currently has (known) limitations:
 
+- The `on: status` event is way too broad, but there doesn't seem to be a way of limiting it.
+  This leads to lots of 1-2s actions for each status update (see [#27](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/27)).
 - Tests do not test anything (haven't gotten around to fixing them)
 - Only allows redirecting to a single file that must be configured ahead of
   time as a file (cannot be changed within the CircleCI run)
