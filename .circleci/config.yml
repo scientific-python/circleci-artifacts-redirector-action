@@ -16,7 +16,7 @@ jobs:
       - run: npm install
       - run: npm test
       - run: mkdir ~/my_test_artifacts
-      - run: echo "This should point to root_artifact.md for commit on CIRCLE_BRANCH=${CIRCLE_BRANCH}" in CIRCLE_PR_NUMBER=${CIRCLE_PR_NUMBER} for commit ${CIRCLE_SHA1}" | tee ~/my_test_artifacts/root_artifact.md
+      - run: echo "This should point to root_artifact.md for commit on CIRCLE_BRANCH=${CIRCLE_BRANCH} in CIRCLE_PR_NUMBER=${CIRCLE_PR_NUMBER} for commit ${CIRCLE_SHA1}" | tee ~/my_test_artifacts/root_artifact.md
       - store_artifacts:
           path: ~/my_test_artifacts
           destination: test_artifacts
