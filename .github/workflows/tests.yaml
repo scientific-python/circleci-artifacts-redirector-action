@@ -20,7 +20,10 @@ jobs:
       - uses: actions/checkout@v6.0.2
         with:
           persist-credentials: false
-      - run: node --version
+      - uses: actions/setup-node@v6.0.0
+        with:
+          node-version: '24.x'
+      - run: which node && node --version && which npm && npm --version
       - run: npm install
       - uses: pre-commit/action@v3.0.1
       - run: npm test
