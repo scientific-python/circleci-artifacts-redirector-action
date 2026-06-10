@@ -94,6 +94,6 @@ Make any changes needed to `package-lock.json` and `index.js` and open a PR.Thes
 [autofix.ci bot](https://autofix.ci/).
 
 If you want to do the same work locally as the bot, use `npm install` to get
-all dependencies and then call `ncc build index.js`. On Ubuntu you might
+all dependencies and then call `ncc build index.js -o dist`. On Ubuntu you might
 need to `export NODE_OPTIONS=--openssl-legacy-provider` before the `ncc build`
 step.

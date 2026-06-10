@@ -17,8 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: npm install
-      - run: npm i -g @vercel/ncc
-      - run: ncc build index.js
+      - run: npx ncc build index.js -o dist
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
       - uses: autofix-ci/action@c5b2d67aa2274e7b5a18224e8171550871fc7e4a  # v1.3.4

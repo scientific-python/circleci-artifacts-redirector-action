@@ -2,7 +2,9 @@
   "name": "javascript-action",
   "version": "1.0.0",
   "description": "JavaScript Action Template",
+  "type": "module",
   "main": "index.js",
+
   "scripts": {
     "lint": "eslint index.js",
     "package": "ncc build index.js -o dist",

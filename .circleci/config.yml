@@ -12,10 +12,10 @@ jobs:
       - node/install:
           install-yarn: true
           node-version: '24.16.0'
-      - run: node --version && npm install
-      - run: |
-          mkdir ~/my_test_artifacts
-          echo "This should point to root_artifact.md for commit ${CIRCLE_SHA1}" > ~/my_test_artifacts/root_artifact.md
+      - run: node --version
+      - run: npm install
+      - run: mkdir ~/my_test_artifacts
+      - run: echo "This should point to root_artifact.md for commit ${CIRCLE_SHA1}" | tee ~/my_test_artifacts/root_artifact.md
       - run: npm test
       - store_artifacts:
           path: ~/my_test_artifacts

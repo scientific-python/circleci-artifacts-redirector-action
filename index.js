@@ -2,14 +2,14 @@
 // Hence we must monitor statuses rather than using the more convenient
 // "checks" API.
 //
-// After changing this file, use `ncc build index.js` to rebuild to dist/
+// After changing this file, use `ncc build index.js -o dist` to rebuild to dist/
 
 // Refs:
 // https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
 
-const core = require('@actions/core')
-const github = require('@actions/github')
-const fetch = require('node-fetch');
+import * as core from '@actions/core'
+import * as github from '@actions/github'
+import fetch from 'node-fetch'
 
 async function run() {
   try {
@@ -122,7 +122,7 @@ async function run() {
     const response = await fetch(artifacts_url, {headers})
     const artifacts = await response.json()
     core.debug(`Artifacts JSON (status=${response.status}):`)
-    core.debug(artifacts)
+    core.debug(JSON.stringify(artifacts))
     // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
     var url = '';
     if (artifacts.items.length > 0) {
