@@ -1,6 +1,7 @@
 version: 2.1
 orbs:
-  node: circleci/node@7.1.1
+  # We should periodically update this, last updated 2026-06-10
+  node: circleci/node@7.2.1
 jobs:
   build:
     docker:
@@ -10,7 +11,7 @@ jobs:
       - checkout
       - node/install:
           install-yarn: true
-          node-version: '20.18.1'
+          node-version: '24.16.0'
       - run: node --version && npm install
       - run: |
           mkdir ~/my_test_artifacts

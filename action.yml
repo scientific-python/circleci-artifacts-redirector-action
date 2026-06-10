@@ -2,7 +2,7 @@ name: 'run-circleci-artifacts-redirector'
 description: 'Create a direct artifact link upon CircleCI completion'
 branding:
   icon: check
-  color: black
+  color: blue
 author: 'Eric Larson'
 inputs:
   repo-token:
@@ -33,7 +33,7 @@ inputs:
 outputs:
   url:
     description: 'The full redirect URL'
-on: status
+on: status  # yamllint disable-line rule:truthy
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'
