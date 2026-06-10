@@ -9,3 +9,7 @@ repos:
     hooks:
     -   id: eslint
         files: ^index.js$
+        additional_dependencies:
+        -   globals@17.6.0
+        -   '@eslint/js@10.0.1'
+        -   '@eslint/eslintrc@3.3.5'
