@@ -9,5 +9,3 @@ repos:
     hooks:
     -   id: eslint
         files: ^index.js$
-        additional_dependencies:
-          - eslint@^9.39.4
