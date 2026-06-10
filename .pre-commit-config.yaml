@@ -1,7 +1,11 @@
 repos:
-  # yamllint
   - repo: https://github.com/adrienverge/yamllint.git
     rev: v1.38.0
     hooks:
       - id: yamllint
         args: [--strict, -c, .yamllint.yml]
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: 'v10.4.1'
+    hooks:
+    -   id: eslint
+        files: ^index.js$
