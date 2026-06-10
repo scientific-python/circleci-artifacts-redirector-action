@@ -14,9 +14,9 @@ jobs:
           node-version: '24.16.0'
       - run: node --version
       - run: npm install
+      - run: npm test
       - run: mkdir ~/my_test_artifacts
       - run: echo "This should point to root_artifact.md for commit ${CIRCLE_SHA1}" | tee ~/my_test_artifacts/root_artifact.md
-      - run: npm test
       - store_artifacts:
           path: ~/my_test_artifacts
           destination: test_artifacts
