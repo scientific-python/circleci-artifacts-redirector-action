@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Rebuild dist
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6.0.0
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: '24.x'
       - run: npm install

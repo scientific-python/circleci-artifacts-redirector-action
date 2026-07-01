@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6.0.0
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: '24.x'
       - run: which node && node --version && which npm && npm --version
