@@ -67,6 +67,12 @@ jobs:
   status for that). So a job that fails after uploading its artifacts still
   gets a green link, and a job that passes without uploading anything gets a
   red one (see [#57](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/57)).
+- Set `post-pending: 'false'` to skip the "Waiting for CircleCI ..." status
+  that is posted while the job is still running. That halves the statuses this
+  action creates, and since every status is itself a `status` event, it halves
+  the workflow runs they trigger too (see
+  [#27](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/27)).
+  It defaults to `'true'`, so existing setups are unchanged.
 - The action has an output `url` that you can use in downstream steps, but
   this URL will only point to a valid artifact once the job is complete, i.e.,
   `github.event.status` is either `'success'`, `'fail'`, or (maybe) `'error'`,
@@ -81,6 +87,49 @@ jobs:
 > This seems to be a limitation of the fact that CircleCI uses the `status`
 > (rather than app) API and that this is always tied to the `master`/default
 > branch of a given repository.
+
+## GitHub App (prototype, not yet deployed)
+
+`worker/index.js` is a Cloudflare Worker that does the same job as the action,
+but as a GitHub App reacting to `status` webhooks server-side. The point is
+[#27](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/27):
+with the App there is no workflow, so there are **no workflow runs at all** —
+instead of one run per status event, most of which do nothing.
+
+Instead of a workflow file, a repo using the App has
+`.github/circleci-artifacts.yml`, which is the `with:` block of the old
+workflow with the indentation and `repo-token` removed:
+
+```yaml
+artifact-path: 0/doc/index.html
+circleci-jobs: build_docs
+job-title: Check the rendered docs here!
+```
+
+Since migrating usually means `git mv`-ing the old workflow, the underscore
+and `circle` spellings are accepted too — `circle-artifacts.yml`,
+`circle_artifacts.yml`, `circleci_artifacts.yml`, and the `.yaml` versions of
+each all work.
+
+The config is always read from the **default branch**, so a pull request
+(including one from a fork) cannot change where the link points.
+
+Both front ends share `src/core.js` and `src/config.js`, so the two cannot
+drift apart: the same resolution logic and the same option defaults serve both.
+
+Differences from the action, by design:
+
+- No `url` output, because there is no workflow step to consume it.
+- No "Waiting for CircleCI ..." status: the app always behaves as though
+  `post-pending` were `false`, since each status it posts is itself a `status`
+  event, and the final status says everything the pending one did.
+- Public CircleCI projects only: a private project needs an `api-token`, which
+  would mean storing each repo's CircleCI token server-side.
+- Duplicate deliveries are dropped: CircleCI sometimes reports the same job
+  status twice, and posting an identical status twice is invisible in the UI
+  but doubles the events it generates.
+
+The action is not going away; the App is a second way to run the same code.
 
 ## Limitations
 

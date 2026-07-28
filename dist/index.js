@@ -29149,12 +29149,7 @@ var __webpack_exports__ = {};
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
-  x6: () => (/* binding */ fetchJson),
-  O$: () => (/* binding */ legacyArtifactsUrl),
-  BH: () => (/* binding */ pickJob),
-  Qc: () => (/* binding */ redirectUrl),
-  eF: () => (/* binding */ run),
-  SR: () => (/* binding */ statusFor)
+  e: () => (/* binding */ run)
 });
 
 ;// CONCATENATED MODULE: external "os"
@@ -36420,19 +36415,69 @@ function github_getOctokit(token, options, ...additionalPlugins) {
 //# sourceMappingURL=github.js.map
 // EXTERNAL MODULE: external "node:url"
 var external_node_url_ = __nccwpck_require__(3136);
-;// CONCATENATED MODULE: ./index.js
-// This as annoying because CircleCI does not use the App API.
-// Hence we must monitor statuses rather than using the more convenient
-// "checks" API.
+;// CONCATENATED MODULE: ./src/config.js
+// The options accepted by both front ends: the GitHub Action reads them from
+// workflow inputs, the GitHub App from .github/circleci-artifacts.yml. Keep the
+// defaults here in sync with action.yml (index.test.js checks that they match).
+
+const DEFAULT_JOBS = 'build_docs,doc,build'
+const DEFAULT_DOMAIN = 'output.circle-artifacts.com'
+
+// Turn raw string options into the shape the resolver wants. Missing values
+// fall back to the defaults, so callers can pass whatever they happen to have.
+function normalizeConfig(raw = {}) {
+  const get = (name) => (raw[name] ?? '').toString().trim()
+  return {
+    // Tolerate spaces after the commas, e.g. "build_docs, doc"
+    jobNames: (get('circleci-jobs') || DEFAULT_JOBS)
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name !== ''),
+    path: get('artifact-path'),
+    domain: get('domain') || DEFAULT_DOMAIN,
+    jobTitle: get('job-title'),
+    apiToken: get('api-token'),
+    // Only a literal "false" turns it off, so existing users keep the
+    // "Waiting for CircleCI ..." status they have always had
+    postPending: get('post-pending').toLowerCase() !== 'false',
+  }
+}
+
+// A deliberately small parser for the flat "key: value" config file. The file
+// is the `with:` block of the old workflow, so every value is a scalar; if that
+// ever stops being true this should become a real YAML dependency.
+function parseConfig(text) {
+  const config = {}
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim()
+    if (line === '' || line.startsWith('#')) {
+      continue
+    }
+    const colon = line.indexOf(':')
+    if (colon === -1) {
+      continue
+    }
+    const key = line.slice(0, colon).trim()
+    let value = line.slice(colon + 1).trim()
+    const comment = value.indexOf(' #')
+    if (comment !== -1 && !value.startsWith('"') && !value.startsWith("'")) {
+      value = value.slice(0, comment).trim()
+    }
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    config[key] = value
+  }
+  return config
+}
+
+;// CONCATENATED MODULE: ./src/core.js
+// Everything both front ends share: given a GitHub `status` event payload and
+// the options for a repo, work out which commit status to post.
 //
-// After changing this file, use `ncc build index.js -o dist` to rebuild to dist/
-
-// Refs:
-// https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
-
-
-
-
+// This module deliberately uses nothing Node-specific -- only the global fetch
+// -- so that it also runs in a Cloudflare Worker (see worker/index.js).
 
 // Pick the job whose artifacts should be linked. A single-job workflow is
 // unambiguous; otherwise prefer a job the user asked for, and fall back to the
@@ -36488,96 +36533,129 @@ async function fetchJson(fetchFn, url, options) {
   return response.json()
 }
 
+// Work out the artifacts endpoint for a status target_url, which comes in two
+// flavours depending on how the project is connected to GitHub.
+async function artifactsUrlFor(target, jobNames, fetchFn, log) {
+  if (target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow/')) {
+    // ───── New GitHub‑App URL ───────────────────────────────────────────
+    // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
+    // OR
+    // .../workflow/<workflow-id>
+    const workflowId = target.split('/').at(-1)
+    log(`workflow: ${workflowId}`)
+    const jobs = await fetchJson(fetchFn, `https://circleci.com/api/v2/workflow/${workflowId}/job`)
+    if (!jobs.items.length) {
+      throw new Error(`No jobs returned for workflow ${workflowId}`)
+    }
+    const job = pickJob(jobs.items, jobNames)
+    log(`Using job ${job.name} of ${jobs.items.map((item) => item.name).join(', ')}`)
+    return `https://circleci.com/api/v2/project/${job.project_slug}/${job.job_number}/artifacts`
+  }
+  // ───── Legacy OAuth URL (…/gh/<org>/<repo>/<build>) ────────────────
+  return legacyArtifactsUrl(target)
+}
+
+// The whole job: from a status payload plus config, produce the commit status
+// to create, or null when this event is none of our business. Throws when
+// CircleCI cannot be reached or returns something unusable.
+async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log = () => {}}) {
+  // Each job reports itself as a "ci/circleci: <name>" status context
+  const contexts = config.jobNames.map((name) => `ci/circleci: ${name}`)
+  if (!contexts.includes(payload.context)) {
+    log(`Ignoring context: ${payload.context}`)
+    return null
+  }
+  if (payload.state === 'pending' && !config.postPending) {
+    // Skipping these halves the statuses posted, and every status posted is
+    // itself a status event that comes back around (gh-27)
+    log('Ignoring pending status: post-pending is off')
+    return null
+  }
+  if (!payload.target_url) {
+    // Some status events carry no URL at all, so there is nothing to link to
+    log('Ignoring status with no target_url')
+    return null
+  }
+  log(`state: ${payload.state}, target_url: ${payload.target_url}`)
+
+  const target = payload.target_url.split('?')[0]   // strip any ?utm=…
+  const artifactsUrl = await artifactsUrlFor(target, config.jobNames, fetchFn, log)
+  log(`Fetching JSON: ${artifactsUrl}`)
+  // Only send a token when we have one: CircleCI rejects a bogus token with
+  // a 401 even for public projects, but is happy with no token at all
+  const headers = {'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
+  if (config.apiToken !== '') {
+    headers['Circle-Token'] = config.apiToken
+  }
+  const artifacts = await fetchJson(fetchFn, artifactsUrl, {headers})
+  log(`Artifacts JSON: ${JSON.stringify(artifacts)}`)
+
+  const url = redirectUrl(artifacts.items, config.path, config.domain, payload.target_url)
+  const {state, description} = statusFor(payload.state, artifacts.items.length > 0, config.path)
+  return {
+    url,
+    state,
+    description,
+    context: config.jobTitle || `${payload.context} artifact`,
+  }
+}
+
+;// CONCATENATED MODULE: ./index.js
+// This as annoying because CircleCI does not use the App API.
+// Hence we must monitor statuses rather than using the more convenient
+// "checks" API.
+//
+// After changing this file, use `ncc build index.js -o dist` to rebuild to dist/
+//
+// The logic itself lives in src/core.js, which is shared with the GitHub App
+// front end in worker/index.js.
+
+// Refs:
+// https://docs.github.com/en/developers/webhooks-and-events/webhooks/webhook-events-and-payloads#status
+
+
+
+
+
+
+
 // The context/fetch/octokit arguments exist so that tests can inject fakes;
 // in production the defaults are always used.
 async function run({context = github_context, fetchFn = globalThis.fetch, getOctokit = github_getOctokit} = {}) {
   try {
     core_debug((new Date()).toTimeString())
     const payload = context.payload
-    const path = getInput('artifact-path', {required: true})
     const token = getInput('repo-token', {required: true})
-    const apiToken = getInput('api-token', {required: false})
-    if (apiToken !== '') {
+    const config = normalizeConfig({
+      'artifact-path': getInput('artifact-path', {required: true}),
+      'circleci-jobs': getInput('circleci-jobs', {required: false}),
+      'job-title': getInput('job-title', {required: false}),
+      'domain': getInput('domain'),
+      'api-token': getInput('api-token', {required: false}),
+      'post-pending': getInput('post-pending', {required: false}),
+    })
+    if (config.apiToken !== '') {
       // Keep the token out of the logs, including any future logging of it
-      core_setSecret(apiToken)
+      core_setSecret(config.apiToken)
       core_debug('Successfully read CircleCI API token')
     }
-    // Tolerate spaces after the commas, e.g. "build_docs, doc"
-    const jobNames = (getInput('circleci-jobs', {required: false}) || 'build_docs,doc,build')
-      .split(',')
-      .map((name) => name.trim())
-      .filter((name) => name !== '')
 
-    // Each job reports itself as a "ci/circleci: <name>" status context
-    const contexts = jobNames.map((name) => `ci/circleci: ${name}`)
-    core_debug(`Considering CircleCI jobs named: ${contexts}`)
-    if (!contexts.includes(payload.context)) {
-      core_debug(`Ignoring context: ${payload.context}`)
+    const status = await resolveStatus({payload, config, fetchFn, log: core_debug})
+    if (status === null) {
       return
     }
+    core_debug(`Linking to: ${status.url}`)
+    setOutput('url', status.url)
 
-    core_debug(`context:    ${payload.context}`)
-    core_debug(`state:      ${payload.state}`)
-    core_debug(`target_url: ${payload.target_url}`)
-    if (!payload.target_url) {
-      // Some status events carry no URL at all, so there is nothing to link to
-      core_debug('Ignoring status with no target_url')
-      return
-    }
-    // e.g., https://circleci.com/gh/mne-tools/mne-python/53315
-    // e.g., https://circleci.com/gh/scientific-python/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
-    const target = payload.target_url.split('?')[0]   // strip any ?utm=…
-    let artifactsUrl = ''
-    if (target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow/')) {
-      // ───── New GitHub‑App URL ───────────────────────────────────────────
-      // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
-      // OR
-      // .../workflow/<workflow-id>
-      const workflowId = target.split('/').at(-1)
-      core_debug(`workflow: ${workflowId}`)
-
-      const jobs = await fetchJson(fetchFn, `https://circleci.com/api/v2/workflow/${workflowId}/job`)
-      if (!jobs.items.length) {
-        setFailed(`No jobs returned for workflow ${workflowId}`)
-        return
-      }
-
-      const job = pickJob(jobs.items, jobNames)
-      core_debug(`Using job ${job.name} of ${jobs.items.map((item) => item.name).join(', ')}`)
-      core_debug(`slug:  ${job.project_slug}`)  // "circleci/<org‑id>/<project‑id>"
-      core_debug(`job#:  ${job.job_number}`)
-      artifactsUrl = `https://circleci.com/api/v2/project/${job.project_slug}/${job.job_number}/artifacts`
-    } else {
-      artifactsUrl = legacyArtifactsUrl(target)
-    }
-
-    core_debug(`Fetching JSON: ${artifactsUrl}`)
-    // Only send a token when we have one: CircleCI rejects a bogus token with
-    // a 401 even for public projects, but is happy with no token at all
-    const headers = {'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
-    if (apiToken !== '') {
-      headers['Circle-Token'] = apiToken
-    }
-    // e.g., https://circleci.com/api/v2/project/gh/scientific-python/circleci-artifacts-redirector-action/94/artifacts
-    const artifacts = await fetchJson(fetchFn, artifactsUrl, {headers})
-    core_debug(`Artifacts JSON: ${JSON.stringify(artifacts)}`)
-    // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
-    const url = redirectUrl(artifacts.items, path, getInput('domain'), payload.target_url)
-    core_debug(`Linking to: ${url}`)
-    core_debug((new Date()).toTimeString())
-    setOutput('url', url)
-
-    const {state, description} = statusFor(payload.state, artifacts.items.length > 0, path)
-    const jobTitle = getInput('job-title', {required: false}) || `${payload.context} artifact`
     const client = getOctokit(token)
     return client.rest.repos.createCommitStatus({
       repo: context.repo.repo,
       owner: context.repo.owner,
       sha: payload.sha,
-      state,
-      target_url: url,
-      description,
-      context: jobTitle
+      state: status.state,
+      target_url: status.url,
+      description: status.description,
+      context: status.context
     })
   } catch (error) {
     // Keep the failure itself readable; the stack is there with debug logging
@@ -36588,15 +36666,11 @@ async function run({context = github_context, fetchFn = globalThis.fetch, getOct
 
 // Run only when invoked as the action entry point, so that index.test.js can
 // import run() without executing it (this survives the ncc bundling).
-/* node:coverage ignore next 3 */
+/* node:coverage disable */
 if (import.meta.url === (0,external_node_url_.pathToFileURL)(process.argv[1]).href) {
   run()
 }
+/* node:coverage enable */
 
-var __webpack_exports__fetchJson = __webpack_exports__.x6;
-var __webpack_exports__legacyArtifactsUrl = __webpack_exports__.O$;
-var __webpack_exports__pickJob = __webpack_exports__.BH;
-var __webpack_exports__redirectUrl = __webpack_exports__.Qc;
-var __webpack_exports__run = __webpack_exports__.eF;
-var __webpack_exports__statusFor = __webpack_exports__.SR;
-export { __webpack_exports__fetchJson as fetchJson, __webpack_exports__legacyArtifactsUrl as legacyArtifactsUrl, __webpack_exports__pickJob as pickJob, __webpack_exports__redirectUrl as redirectUrl, __webpack_exports__run as run, __webpack_exports__statusFor as statusFor };
+var __webpack_exports__run = __webpack_exports__.e;
+export { __webpack_exports__run as run };

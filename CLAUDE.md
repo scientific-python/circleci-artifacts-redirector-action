@@ -1,0 +1,134 @@
+# CLAUDE.md
+
+Notes for agents working on this repo. User-facing docs live in `README.md`;
+this file is the working knowledge that is easy to get wrong.
+
+## What this is
+
+Two front ends over one core, for putting a link to a CircleCI artifact into a
+GitHub commit status:
+
+| File | Role |
+|---|---|
+| `src/core.js` | all the logic; runtime-neutral (global `fetch` only, nothing from `node:`) |
+| `src/config.js` | option names, defaults and the config-file parser, shared by both |
+| `index.js` | GitHub Action entry point (`@actions/core`, `@actions/github`) |
+| `worker/index.js` | GitHub App entry point: a Cloudflare Worker handling `status` webhooks |
+| `dist/index.js` | the bundle the action actually runs; **committed**, built by `ncc` |
+
+Keep logic in `src/`. Anything added to only one front end will drift; that is
+the whole reason the split exists.
+
+## Commands
+
+```bash
+npm test          # eslint + node --test
+npm run coverage  # the same, with a hard 100% line/branch/function floor
+npx ncc build index.js -o dist   # after ANY change to index.js or src/
+pre-commit run --all-files       # yamllint + eslint, as CI runs them
+npx wrangler deploy              # after ANY change to worker/ or src/
+```
+
+CI enforces 100% coverage. New code needs tests, or `/* node:coverage
+disable */` with a reason (see the entry-point guard in `index.js`).
+
+## Conventions
+
+- **No semicolons, single quotes**, `eqeqeq` with `{null: 'ignore'}` — enforced
+  by `eslint.config.mjs`, all autofixable with `npx eslint . --fix`.
+- **Rebuild `dist/`** in the same commit as any `index.js`/`src/` change, or
+  the action ships stale code. autofix.ci also does this on PRs.
+- **`.pre-commit-config.yaml` pins ESLint separately from `package.json`** and
+  dependabot only updates the latter. Bump both together.
+- Style-only commits go in `.git-blame-ignore-revs`.
+- Node version comes from `.nvmrc` (CircleCI orb and `setup-node` both read it).
+
+## Testing style
+
+`node:test`, no framework. The action is tested by setting real `INPUT_*` env
+vars and injecting `fetchFn`/`getOctokit`; the Worker by building a real
+`Request` and injecting `fetchFn`. Both use the real `@actions/core` and real
+Web Crypto — the JWT test signs with a generated key and verifies with
+`node:crypto`, so it would be accepted by GitHub.
+
+**Mutation-test any fix**: revert it alone and confirm the new test fails. This
+caught a test that passed with *and* without the fix (an HTTP-error test that
+only asserted "the job failed", when the old code also failed, just with a
+useless message).
+
+## Hard-won gotchas
+
+Things that cost real debugging time. Do not undo these.
+
+- **Never send `Circle-Token` unless a token was supplied.** CircleCI answers
+  `401` to a bogus token even on public projects, while no header at all is
+  `200`. Sending the literal string `"null"` broke every tokenless public repo
+  (gh-119).
+- **The status reports the link, not the build** (gh-57): green when artifacts
+  exist, red when they do not, regardless of whether CircleCI passed.
+- **Do not add exact `artifact-path` matching.** It was proposed and declined:
+  CircleCI lists only files, so anyone whose path is a directory (`0/dev/`,
+  relying on an index redirect) would go permanently red. A broken link is the
+  lesser evil. Revisiting it would also need `next_page_token` paging.
+- **The app must read config from the default branch.** Reading it from the
+  event's ref would let a forked PR point `domain:` at a host it controls and
+  have us post a trusted-looking link to it. Verified live with a fork PR whose
+  branch config said `SHOULD NOT APPEAR`.
+- **`on: status` cannot be filtered** — no `types`, no branches, and the
+  workflow must exist on the default branch. Job-level `if` skips the work but
+  the run entry is still created, which is gh-27. Every status the action posts
+  is itself a `status` event, so it triggers its own workflow again; that is why
+  `post-pending` exists.
+- **A fork that is itself a followed CircleCI project suppresses upstream
+  builds.** CircleCI builds it in the fork's project and never creates a
+  `pull/N` pipeline in the parent, so the upstream PR shows no status while
+  every setting looks correct. Check
+  `/api/v1.1/project/github/<org>/<repo>/settings` for `build-fork-prs`.
+- **Never suggest installing the CircleCI GitHub App as a fix for forked PRs**
+  — App pipelines are *never* built on forks, so it makes this strictly worse.
+  The OAuth integration is the one that supports them.
+
+## The GitHub App
+
+Deploy: `npx wrangler deploy`. Secrets: `APP_ID`, `PRIVATE_KEY`,
+`WEBHOOK_SECRET` via `wrangler secret put`.
+
+- `PRIVATE_KEY` must be **PKCS#8** (`openssl pkcs8 -topk8 -nocrypt …`); Web
+  Crypto cannot import the PKCS#1 file GitHub gives you.
+- Upload `WEBHOOK_SECRET` with `printf '%s'`, never `< file` — a trailing
+  newline makes every delivery `401`.
+- Token (50 min), config (10 min) and posted-status dedupe (5 min) are cached in
+  an isolate-level `Map`. All best-effort: a cold isolate just refetches, and a
+  duplicate can slip through. Nothing is correctness-critical.
+- Repos with no config file are inert, so a stale installation posts nothing.
+- The config file is found by **listing `.github/` and matching
+  `CONFIG_NAME`** (`circle(ci)?[-_]artifacts.ya?ml`) rather than fetching one
+  fixed path: people migrate by `git mv`-ing their workflow, which is called
+  `circle_artifacts.yml` in SciPy and MNE-Python. Costs one extra API call when
+  a config exists, cached for 10 minutes.
+- Responses are the diagnostic surface: the App's Advanced → Recent Deliveries
+  tab shows exactly which stage a delivery reached.
+
+## Where things stand (2026-07-28)
+
+The App prototype is merged/being merged from `app-prototype`. It is **running
+in production for `LABSN/expyfun`**, which removed its workflow — but on a
+*personal* Cloudflare account and a personally-owned App registration, not
+scientific-python infrastructure.
+
+Next steps, roughly in order:
+
+1. More repos: `scikit-image/scikit-image` and `braindecode/braindecode`
+   already have the App installed (since 2019) and only need a config file.
+   Then MNE-Python and SciPy.
+2. Hand over to scientific-python: App ownership transfers preserve
+   installations, and the Worker is stateless, so it is `wrangler deploy` +
+   three secrets + one webhook URL change. Stefan van der Walt (stefanv) runs
+   the org's existing Cloudflare Worker (`scientific-python/circleci-proxy`);
+   he and Jarrod Millman are the org owners.
+3. Measured load for scikit-learn + MNE-Python + SciPy combined: ~8,200
+   deliveries/week, about 1.2% of the Workers free tier.
+
+Not supported by the App, by design: private CircleCI projects (would need
+server-side token storage) and the `url` output (no workflow step to consume
+it). The action remains the answer for both, and is not going away.

@@ -12,7 +12,7 @@ repos:
     rev: 'v10.8.0'
     hooks:
     -   id: eslint
-        files: ^index(\.test)?\.js$
+        files: ^(index|src/.*|worker/.*)(\.test)?\.js$
         additional_dependencies:
         - globals@17.8.0
         - eslint@10.8.0

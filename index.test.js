@@ -3,9 +3,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { run, pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson } from './index.js'
+import { run } from './index.js'
+import { pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson, resolveStatus } from './src/core.js'
+import { normalizeConfig } from './src/config.js'
 
-const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain']
+const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain', 'post-pending']
 const OUTPUT_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'redirector-')), 'output.txt')
 const ARTIFACT = {url: 'https://output.circle-artifacts.com/output/job/abc/artifacts/0/doc/other.html'}
 
@@ -288,4 +290,35 @@ test('fetchJson', async () => {
   // An unreadable body should not mask the status code
   const unreadable = {ok: false, status: 500, text: async () => { throw new Error('nope') }}
   await assert.rejects(() => fetchJson(async () => unreadable, 'https://x'), /returned 500/)
+})
+
+test('resolveStatus works without a logger', async () => {
+  const fetchFn = async () => ({ok: true, status: 200, json: async () => ({items: [ARTIFACT]})})
+  const status = await resolveStatus({
+    payload: {context: 'ci/circleci: build', state: 'success', target_url: 'https://circleci.com/gh/o/r/1'},
+    config: normalizeConfig({'artifact-path': 'doc/index.html'}),
+    fetchFn,
+  })
+  assert.equal(status.url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
+})
+
+test('post-pending: false skips the pending status entirely', async () => {
+  const {requests, url, status} = await runAction({
+    inputs: {'post-pending': 'false'},
+    payload: {state: 'pending'},
+  })
+  assert.deepEqual(requests, [], 'and costs no CircleCI call')
+  assert.equal(url, undefined)
+  assert.equal(status, null)
+})
+
+test('post-pending defaults to on, and only "false" turns it off', async () => {
+  for (const [value, expected] of [[undefined, 'pending'], ['true', 'pending'], ['False', null], ['false', null]]) {
+    const {status} = await runAction({
+      inputs: value === undefined ? {} : {'post-pending': value},
+      payload: {state: 'pending'},
+      bodies: [{items: []}],
+    })
+    assert.equal(status === null ? null : status.state, expected, `post-pending: ${value}`)
+  }
 })
