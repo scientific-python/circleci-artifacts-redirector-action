@@ -1,8 +1,10 @@
-import test from 'node:test'
+import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import worker, { handle, verifySignature, mintToken, readConfig, CONFIG_PATH } from './index.js'
+import worker, { handle, verifySignature, mintToken, readConfig, clearCache, CONFIG_PATH, TOKEN_TTL_MS, CONFIG_TTL_MS } from './index.js'
 import { parseConfig, normalizeConfig } from '../src/config.js'
+
+beforeEach(clearCache)
 
 const SECRET = 'webhook-secret'
 // A throwaway key, generated once here, so the JWT path runs for real
@@ -99,6 +101,7 @@ test('ignores non-status events and non-CircleCI contexts without any API call',
     [webhook({...PAYLOAD, context: 'codecov/patch'}), 'wrong context'],
     [webhook({...PAYLOAD, context: undefined}), 'no context'],
   ]) {
+    clearCache()
     const {fetchFn, seen} = backend()
     const response = await handle(request, ENV, {fetchFn})
     assert.equal(response.status, 200, why)
@@ -108,6 +111,7 @@ test('ignores non-status events and non-CircleCI contexts without any API call',
 
 test('ignores repos with no config file, and configs with no artifact-path', async () => {
   for (const config of [null, 'job-title: incomplete\n']) {
+    clearCache()
     const {fetchFn, seen} = backend({config})
     const response = await handle(webhook(PAYLOAD), ENV, {fetchFn})
     assert.equal(response.status, 200)
@@ -215,4 +219,50 @@ test('the default entry point answers without touching the network', async () =>
   // An unusable private key throws while importing, i.e. still before any fetch
   const response = await worker.fetch(webhook(PAYLOAD), {...ENV, PRIVATE_KEY: 'not-a-key'})
   assert.equal(response.status, 500, 'failures surface to GitHub as a failed delivery')
+})
+
+test('reuses the token and config across events in the same isolate', async () => {
+  const {fetchFn, seen} = backend()
+  await handle(webhook(PAYLOAD), ENV, {fetchFn})
+  const first = seen.length
+  await handle(webhook({...PAYLOAD, sha: 'cafe'}), ENV, {fetchFn})
+
+  const second = seen.slice(first).map((r) => r.url)
+  assert.ok(!second.some((u) => u.endsWith('/access_tokens')), 'token reused')
+  assert.ok(!second.some((u) => u.includes('/contents/')), 'config reused')
+  assert.ok(second.some((u) => u.includes('/statuses/')), 'but the status is still posted')
+  assert.equal(second.length, 2, 'only CircleCI + the status POST')
+})
+
+test('refetches once each cache entry expires', async () => {
+  const {fetchFn, seen} = backend()
+  let clock = 1_000_000
+  const now = () => clock
+  await handle(webhook(PAYLOAD), ENV, {fetchFn, now})
+
+  clock += CONFIG_TTL_MS + 1
+  let before = seen.length
+  await handle(webhook(PAYLOAD), ENV, {fetchFn, now})
+  let urls = seen.slice(before).map((r) => r.url)
+  assert.ok(urls.some((u) => u.includes('/contents/')), 'config refetched')
+  assert.ok(!urls.some((u) => u.endsWith('/access_tokens')), 'token still valid')
+
+  clock += TOKEN_TTL_MS + 1
+  before = seen.length
+  await handle(webhook(PAYLOAD), ENV, {fetchFn, now})
+  urls = seen.slice(before).map((r) => r.url)
+  assert.ok(urls.some((u) => u.endsWith('/access_tokens')), 'token refetched')
+})
+
+test('does not cache a failure', async () => {
+  let fail = true
+  const {fetchFn} = backend()
+  const flaky = async (url, options) => (fail && url.endsWith('/access_tokens'))
+    ? new Response('{}', {status: 500})
+    : fetchFn(url, options)
+
+  await assert.rejects(() => handle(webhook(PAYLOAD), ENV, {fetchFn: flaky}))
+  fail = false
+  const response = await handle(webhook(PAYLOAD), ENV, {fetchFn: flaky})
+  assert.equal(response.status, 200, 'the next event retries instead of serving the failure')
 })

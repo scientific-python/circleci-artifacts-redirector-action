@@ -16,6 +16,34 @@ import { normalizeConfig, parseConfig } from '../src/config.js'
 import { resolveStatus } from '../src/core.js'
 
 export const CONFIG_PATH = '.github/circleci-artifacts.yml'
+// Cloudflare reuses an isolate across many requests, so a plain Map removes
+// most of the token and config traffic without needing KV. Nothing here is
+// correctness-critical: a cold isolate simply fetches again.
+export const TOKEN_TTL_MS = 50 * 60 * 1000   // installation tokens last an hour
+export const CONFIG_TTL_MS = 10 * 60 * 1000
+const cache = new Map()
+
+export function clearCache() {
+  cache.clear()
+}
+
+// Memoize a promise, evicting it if it rejects so that a blip is not cached
+// for the whole TTL. Storing the promise (not the value) also means concurrent
+// events for the same repo share one request.
+export function cached(key, ttl, produce, now = Date.now) {
+  const hit = cache.get(key)
+  if (hit && hit.expires > now()) {
+    return hit.value
+  }
+  const value = produce()
+  cache.set(key, {value, expires: now() + ttl})
+  value.catch(() => {
+    if (cache.get(key)?.value === value) {
+      cache.delete(key)
+    }
+  })
+  return value
+}
 const API = 'https://api.github.com'
 const UA = {'user-agent': 'circleci-artifacts-redirector-app', 'accept': 'application/vnd.github+json'}
 
@@ -81,7 +109,7 @@ export async function readConfig(fetchFn, repo, token) {
   return parseConfig(atob(content.replace(/\s/g, '')))
 }
 
-export async function handle(request, env, {fetchFn = globalThis.fetch, log = () => {}} = {}) {
+export async function handle(request, env, {fetchFn = globalThis.fetch, log = () => {}, now = Date.now} = {}) {
   if (request.method !== 'POST') {
     return new Response('POST only', {status: 405})
   }
@@ -100,13 +128,16 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
     return new Response('ignored: not a CircleCI status', {status: 200})
   }
 
-  const token = await mintToken({
+  const repo = payload.repository
+  const token = await cached(`token:${payload.installation.id}`, TOKEN_TTL_MS, () => mintToken({
     appId: env.APP_ID,
     privateKey: env.PRIVATE_KEY,
     installationId: payload.installation.id,
     fetchFn,
-  })
-  const raw = await readConfig(fetchFn, payload.repository, token)
+  }), now)
+  const raw = await cached(
+    `config:${repo.full_name}@${repo.default_branch}`, CONFIG_TTL_MS,
+    () => readConfig(fetchFn, repo, token), now)
   if (raw === null) {
     return new Response(`ignored: no ${CONFIG_PATH}`, {status: 200})
   }
@@ -120,7 +151,7 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
     return new Response('ignored: not a watched job', {status: 200})
   }
 
-  const response = await fetchFn(`${API}/repos/${payload.repository.full_name}/statuses/${payload.sha}`, {
+  const response = await fetchFn(`${API}/repos/${repo.full_name}/statuses/${payload.sha}`, {
     method: 'POST',
     headers: {...UA, authorization: `Bearer ${token}`},
     body: JSON.stringify({
