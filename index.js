@@ -41,7 +41,7 @@ export async function run({context = github.context, fetchFn = fetch, getOctokit
 
     // Read out 'state' (whether CircleCI process was successful or not), then
     //  store in debug output along with the target_url
-    const state = payload.state
+    let state = payload.state
     core.debug(`context:    ${payload.context}`)
     core.debug(`state:      ${state}`)
     core.debug(`target_url: ${payload.target_url}`)
@@ -128,7 +128,8 @@ export async function run({context = github.context, fetchFn = fetch, getOctokit
     core.debug(JSON.stringify(artifacts))
     // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
     var url = '';
-    if (artifacts.items.length > 0) {
+    const hasArtifacts = artifacts.items.length > 0
+    if (hasArtifacts) {
       url = `${artifacts.items[0].url.split('/artifacts/')[0]}/artifacts/${path}`
       // Set root domain
       var domain = core.getInput('domain')
@@ -143,12 +144,20 @@ export async function run({context = github.context, fetchFn = fetch, getOctokit
     core.debug((new Date()).toTimeString())
     core.setOutput("url", url)
     const client = getOctokit(token)
+    // The status reports whether the link is usable, not whether the CircleCI
+    // job passed (gh-57): a job can fail late and still upload good artifacts,
+    // and the job's own status already reports the failure.
     var description = '';
     if (payload.state === 'pending') {
       description = 'Waiting for CircleCI ...'
     }
-    else {
+    else if (hasArtifacts) {
+      state = 'success'
       description = `Link to ${path}`
+    }
+    else {
+      state = 'failure'
+      description = 'No artifacts found'
     }
     var job_title = core.getInput('job-title', {required: false})
     if (job_title === '') {
