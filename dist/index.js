@@ -34590,6 +34590,11 @@ return new B(c,{type:"multipart/form-data; boundary="+b})}
 /************************************************************************/
 var __webpack_exports__ = {};
 
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  e: () => (/* binding */ run)
+});
+
 ;// CONCATENATED MODULE: external "os"
 const external_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("os");
 ;// CONCATENATED MODULE: ./node_modules/@actions/core/lib/utils.js
@@ -41846,7 +41851,7 @@ const github_context = new Context();
  * @param     token    the repo PAT or GITHUB_TOKEN
  * @param     options  other options to set
  */
-function getOctokit(token, options, ...additionalPlugins) {
+function github_getOctokit(token, options, ...additionalPlugins) {
     const GitHubWithPlugins = GitHub.plugin(...additionalPlugins);
     return new GitHubWithPlugins(getOctokitOptions(token, options));
 }
@@ -44010,10 +44015,13 @@ function fixResponseChunkedTransferBadEnding(request, errorCallback) {
 
 
 
-async function run() {
+
+// The context/fetch/octokit arguments exist so that tests can inject fakes;
+// in production the defaults are always used.
+async function run({context = github_context, fetchFn = fetch, getOctokit = github_getOctokit} = {}) {
   try {
     core_debug((new Date()).toTimeString())
-    const payload = github_context.payload
+    const payload = context.payload
     const path = getInput('artifact-path', {required: true})
     const token = getInput('repo-token', {required: true})
     var apiToken = getInput('api-token', {required: false})
@@ -44055,7 +44063,7 @@ async function run() {
       core_debug(`workflow: ${workflowId}`);
 
       // 1. Get the jobs that belong to this workflow
-      const jobsRes = await fetch(
+      const jobsRes = await fetchFn(
         `https://circleci.com/api/v2/workflow/${workflowId}/job`
       );
       const jobs = await jobsRes.json();
@@ -44118,7 +44126,7 @@ async function run() {
     }
     const headers = {'Circle-Token': apiToken, 'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
     // e.g., https://circleci.com/api/v2/project/gh/scientific-python/circleci-artifacts-redirector-action/94/artifacts
-    const response = await fetch(artifacts_url, {headers})
+    const response = await fetchFn(artifacts_url, {headers})
     const artifacts = await response.json()
     core_debug(`Artifacts JSON (status=${response.status}):`)
     core_debug(JSON.stringify(artifacts))
@@ -44126,13 +44134,15 @@ async function run() {
     var url = '';
     if (artifacts.items.length > 0) {
       url = `${artifacts.items[0].url.split('/artifacts/')[0]}/artifacts/${path}`
+      // Set root domain
+      var domain = getInput('domain')
+      url = `https://${domain}/output/${url.split('/output/')[1]}`
     }
     else {
+      // Nothing was uploaded, so the best we can do is link to the job itself.
+      // (Rewriting the domain only makes sense for artifact URLs.)
       url = payload.target_url;
     }
-    // Set root domain
-    var domain = getInput('domain')
-    url = `https://${domain}/output/${url.split('/output/')[1]}`
     core_debug(`Linking to: ${url}`)
     core_debug((new Date()).toTimeString())
     setOutput("url", url)
@@ -44149,8 +44159,8 @@ async function run() {
       job_title = `${payload.context} artifact`
     }
     return client.rest.repos.createCommitStatus({
-      repo: github_context.repo.repo,
-      owner: github_context.repo.owner,
+      repo: context.repo.repo,
+      owner: context.repo.owner,
       sha: payload.sha,
       state: state,
       target_url: url,
@@ -44162,5 +44172,12 @@ async function run() {
   }
 }
 
-run()
+// Run only when invoked as the action entry point, so that index.test.js can
+// import run() without executing it (this survives the ncc bundling).
+/* node:coverage ignore next 3 */
+if (import.meta.url === (0,external_node_url_.pathToFileURL)(process.argv[1]).href) {
+  run()
+}
 
+var __webpack_exports__run = __webpack_exports__.e;
+export { __webpack_exports__run as run };

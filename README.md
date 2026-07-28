@@ -83,7 +83,6 @@ Currently has (known) limitations:
 
 - The `on: status` event is way too broad, but there doesn't seem to be a way of limiting it.
   This leads to lots of 1-2s actions for each status update (see [#27](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/27)).
-- Tests do not test anything (haven't gotten around to fixing them)
 - Only allows redirecting to a single file that must be configured ahead of
   time as a file (cannot be changed within the CircleCI run)
 
@@ -92,8 +91,15 @@ customization options.
 
 ## Contributing
 
-Make any changes needed to `package-lock.json` and `index.js` and open a PR.These changes will automatically be compiled into `dist/index.js` by the
+Make any changes needed to `package-lock.json` and `index.js` and open a PR.
+These changes will automatically be compiled into `dist/index.js` by the
 [autofix.ci bot](https://autofix.ci/).
 
 If you want to do the same work locally as the bot, use `npm install` to get
 all dependencies and then call `ncc build index.js -o dist`.
+
+Unit tests live in `index.test.js` and use the
+[Node.js test runner](https://nodejs.org/api/test.html). Run them with
+`npm test` (which also lints), or `npm run coverage` to additionally write an
+`lcov.info` report of the kind that CI uploads to
+[Codecov](https://app.codecov.io/gh/scientific-python/circleci-artifacts-redirector-action).

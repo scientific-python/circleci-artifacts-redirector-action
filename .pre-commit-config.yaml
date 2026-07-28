@@ -8,7 +8,7 @@ repos:
     rev: 'v10.4.1'
     hooks:
     -   id: eslint
-        files: ^index.js$
+        files: ^index(\.test)?\.js$
         additional_dependencies:
         - globals@17.6.0
         - eslint@10.4.1

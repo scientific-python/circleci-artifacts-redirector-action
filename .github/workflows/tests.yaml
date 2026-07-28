@@ -26,4 +26,8 @@ jobs:
       - run: which node && node --version && which npm && npm --version
       - run: npm install
       - uses: pre-commit/action@v3.0.1
-      - run: npm test
+      - run: npm run coverage
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./lcov.info
