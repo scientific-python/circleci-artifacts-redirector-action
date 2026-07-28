@@ -3,23 +3,23 @@ github_checks:  # too noisy, even though "a" interactively disables them
   annotations: false
 
 codecov:
-  notify:
-    require_ci_to_pass: false
+  require_ci_to_pass: false
 
+# The 100% targets are not enforcement -- `npm run coverage` fails the build
+# below 100%, so these statuses are informational and just show the number.
 coverage:
   status:
     patch:
       default:
         informational: true
-        target: 95%
+        target: 100%
         if_no_uploads: error
         if_not_found: success
         if_ci_failed: failure
     project:
-      default: false
-      library:
+      default:
         informational: true
-        target: 90%
+        target: 100%
         if_no_uploads: error
         if_not_found: success
         if_ci_failed: failure
