@@ -130,8 +130,12 @@ export async function run({context = github.context, fetchFn = fetch, getOctokit
     }
 
     core.debug(`Fetching JSON: ${artifactsUrl}`)
-    // CircleCI wants a literal "null" token for public projects
-    const headers = {'Circle-Token': apiToken || 'null', 'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
+    // Only send a token when we have one: CircleCI rejects a bogus token with
+    // a 401 even for public projects, but is happy with no token at all
+    const headers = {'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
+    if (apiToken !== '') {
+      headers['Circle-Token'] = apiToken
+    }
     // e.g., https://circleci.com/api/v2/project/gh/scientific-python/circleci-artifacts-redirector-action/94/artifacts
     const artifacts = await fetchJson(fetchFn, artifactsUrl, {headers})
     core.debug(`Artifacts JSON: ${JSON.stringify(artifacts)}`)
