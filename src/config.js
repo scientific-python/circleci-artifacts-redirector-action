@@ -19,6 +19,9 @@ export function normalizeConfig(raw = {}) {
     domain: get('domain') || DEFAULT_DOMAIN,
     jobTitle: get('job-title'),
     apiToken: get('api-token'),
+    // Only a literal "false" turns it off, so existing users keep the
+    // "Waiting for CircleCI ..." status they have always had
+    postPending: get('post-pending').toLowerCase() !== 'false',
   }
 }
 

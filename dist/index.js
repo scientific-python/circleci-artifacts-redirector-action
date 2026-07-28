@@ -36437,6 +36437,9 @@ function normalizeConfig(raw = {}) {
     domain: get('domain') || DEFAULT_DOMAIN,
     jobTitle: get('job-title'),
     apiToken: get('api-token'),
+    // Only a literal "false" turns it off, so existing users keep the
+    // "Waiting for CircleCI ..." status they have always had
+    postPending: get('post-pending').toLowerCase() !== 'false',
   }
 }
 
@@ -36562,6 +36565,12 @@ async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log =
     log(`Ignoring context: ${payload.context}`)
     return null
   }
+  if (payload.state === 'pending' && !config.postPending) {
+    // Skipping these halves the statuses posted, and every status posted is
+    // itself a status event that comes back around (gh-27)
+    log('Ignoring pending status: post-pending is off')
+    return null
+  }
   if (!payload.target_url) {
     // Some status events carry no URL at all, so there is nothing to link to
     log('Ignoring status with no target_url')
@@ -36623,6 +36632,7 @@ async function run({context = github_context, fetchFn = globalThis.fetch, getOct
       'job-title': getInput('job-title', {required: false}),
       'domain': getInput('domain'),
       'api-token': getInput('api-token', {required: false}),
+      'post-pending': getInput('post-pending', {required: false}),
     })
     if (config.apiToken !== '') {
       // Keep the token out of the logs, including any future logging of it

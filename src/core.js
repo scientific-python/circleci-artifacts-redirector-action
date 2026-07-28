@@ -90,6 +90,12 @@ export async function resolveStatus({payload, config, fetchFn = globalThis.fetch
     log(`Ignoring context: ${payload.context}`)
     return null
   }
+  if (payload.state === 'pending' && !config.postPending) {
+    // Skipping these halves the statuses posted, and every status posted is
+    // itself a status event that comes back around (gh-27)
+    log('Ignoring pending status: post-pending is off')
+    return null
+  }
   if (!payload.target_url) {
     // Some status events carry no URL at all, so there is nothing to link to
     log('Ignoring status with no target_url')

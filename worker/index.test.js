@@ -277,3 +277,15 @@ test('a missing WEBHOOK_SECRET is a 401, not a crash', async () => {
     assert.deepEqual(seen, [])
   }
 })
+
+test('the app never posts a pending status, whatever the config says', async () => {
+  for (const config of [CONFIG, CONFIG + 'post-pending: true\n']) {
+    clearCache()
+    const {fetchFn, seen} = backend({config})
+    const response = await handle(webhook({...PAYLOAD, state: 'pending'}), ENV, {fetchFn})
+    assert.equal(response.status, 200)
+    assert.match(await response.text(), /ignored/)
+    assert.ok(!seen.some((r) => r.url.includes('/statuses/')), 'nothing posted')
+    assert.ok(!seen.some((r) => r.url.includes('/artifacts')), 'and no CircleCI call')
+  }
+})

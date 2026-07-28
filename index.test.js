@@ -7,7 +7,7 @@ import { run } from './index.js'
 import { pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson, resolveStatus } from './src/core.js'
 import { normalizeConfig } from './src/config.js'
 
-const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain']
+const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain', 'post-pending']
 const OUTPUT_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'redirector-')), 'output.txt')
 const ARTIFACT = {url: 'https://output.circle-artifacts.com/output/job/abc/artifacts/0/doc/other.html'}
 
@@ -300,4 +300,25 @@ test('resolveStatus works without a logger', async () => {
     fetchFn,
   })
   assert.equal(status.url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
+})
+
+test('post-pending: false skips the pending status entirely', async () => {
+  const {requests, url, status} = await runAction({
+    inputs: {'post-pending': 'false'},
+    payload: {state: 'pending'},
+  })
+  assert.deepEqual(requests, [], 'and costs no CircleCI call')
+  assert.equal(url, undefined)
+  assert.equal(status, null)
+})
+
+test('post-pending defaults to on, and only "false" turns it off', async () => {
+  for (const [value, expected] of [[undefined, 'pending'], ['true', 'pending'], ['False', null], ['false', null]]) {
+    const {status} = await runAction({
+      inputs: value === undefined ? {} : {'post-pending': value},
+      payload: {state: 'pending'},
+      bodies: [{items: []}],
+    })
+    assert.equal(status === null ? null : status.state, expected, `post-pending: ${value}`)
+  }
 })

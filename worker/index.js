@@ -143,7 +143,9 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   if (raw === null) {
     return new Response(`ignored: no ${CONFIG_PATH}`, {status: 200})
   }
-  const config = normalizeConfig(raw)
+  // The app never posts a pending status: it would double the webhook traffic
+  // it generates for no benefit the final status does not already provide
+  const config = {...normalizeConfig(raw), postPending: false}
   if (config.path === '') {
     return new Response('ignored: no artifact-path configured', {status: 200})
   }

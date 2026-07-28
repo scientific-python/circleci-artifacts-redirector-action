@@ -30,6 +30,14 @@ inputs:
       which addresses some routing issues.
     required: false
     default: 'output.circle-artifacts.com'
+  post-pending:
+    description: |
+      Whether to post a "Waiting for CircleCI ..." status while the CircleCI
+      job is still running. Set to 'false' to halve the number of statuses
+      this action creates (and therefore the number of workflow runs the
+      `on: status` trigger produces).
+    required: false
+    default: 'true'
 outputs:
   url:
     description: 'The full redirect URL'

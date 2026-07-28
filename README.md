@@ -67,6 +67,12 @@ jobs:
   status for that). So a job that fails after uploading its artifacts still
   gets a green link, and a job that passes without uploading anything gets a
   red one (see [#57](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/57)).
+- Set `post-pending: 'false'` to skip the "Waiting for CircleCI ..." status
+  that is posted while the job is still running. That halves the statuses this
+  action creates, and since every status is itself a `status` event, it halves
+  the workflow runs they trigger too (see
+  [#27](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/27)).
+  It defaults to `'true'`, so existing setups are unchanged.
 - The action has an output `url` that you can use in downstream steps, but
   this URL will only point to a valid artifact once the job is complete, i.e.,
   `github.event.status` is either `'success'`, `'fail'`, or (maybe) `'error'`,
@@ -109,6 +115,9 @@ drift apart: the same resolution logic and the same option defaults serve both.
 Differences from the action, by design:
 
 - No `url` output, because there is no workflow step to consume it.
+- No "Waiting for CircleCI ..." status: the app always behaves as though
+  `post-pending` were `false`, since each status it posts is itself a `status`
+  event, and the final status says everything the pending one did.
 - Public CircleCI projects only: a private project needs an `api-token`, which
   would mean storing each repo's CircleCI token server-side.
 

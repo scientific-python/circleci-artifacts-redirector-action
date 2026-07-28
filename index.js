@@ -29,6 +29,7 @@ export async function run({context = github.context, fetchFn = globalThis.fetch,
       'job-title': core.getInput('job-title', {required: false}),
       'domain': core.getInput('domain'),
       'api-token': core.getInput('api-token', {required: false}),
+      'post-pending': core.getInput('post-pending', {required: false}),
     })
     if (config.apiToken !== '') {
       // Keep the token out of the logs, including any future logging of it
