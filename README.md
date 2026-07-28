@@ -120,6 +120,9 @@ Differences from the action, by design:
   event, and the final status says everything the pending one did.
 - Public CircleCI projects only: a private project needs an `api-token`, which
   would mean storing each repo's CircleCI token server-side.
+- Duplicate deliveries are dropped: CircleCI sometimes reports the same job
+  status twice, and posting an identical status twice is invisible in the UI
+  but doubles the events it generates.
 
 The action is not going away; the App is a second way to run the same code.
 

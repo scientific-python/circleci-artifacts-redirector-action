@@ -21,6 +21,7 @@ export const CONFIG_PATH = '.github/circleci-artifacts.yml'
 // correctness-critical: a cold isolate simply fetches again.
 export const TOKEN_TTL_MS = 50 * 60 * 1000   // installation tokens last an hour
 export const CONFIG_TTL_MS = 10 * 60 * 1000
+export const DEDUPE_TTL_MS = 5 * 60 * 1000
 const cache = new Map()
 
 export function clearCache() {
@@ -44,6 +45,21 @@ export function cached(key, ttl, produce, now = Date.now) {
   })
   return value
 }
+// True if this exact key was seen recently, recording it if not. CircleCI
+// sometimes delivers the same status twice, and each delivery would otherwise
+// post an identical status: invisible in the UI, since GitHub only shows the
+// latest per context, but it doubles both the posts and the status events they
+// generate. Best-effort by design -- two simultaneous duplicates can still both
+// miss, and a cold isolate forgets everything.
+export function seenRecently(key, ttl, now = Date.now) {
+  const hit = cache.get(key)
+  if (hit && hit.expires > now()) {
+    return true
+  }
+  cache.set(key, {value: true, expires: now() + ttl})
+  return false
+}
+
 const API = 'https://api.github.com'
 const UA = {'user-agent': 'circleci-artifacts-redirector-app', 'accept': 'application/vnd.github+json'}
 
@@ -153,6 +169,13 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   const status = await resolveStatus({payload, config, fetchFn, log})
   if (status === null) {
     return new Response('ignored: not a watched job', {status: 200})
+  }
+
+  // The URL is part of the key, so a re-run that produces different artifacts
+  // still posts, while a duplicate delivery of the same event does not
+  const key = `posted:${repo.full_name}:${payload.sha}:${status.context}:${status.state}:${status.url}`
+  if (seenRecently(key, DEDUPE_TTL_MS, now)) {
+    return new Response(`ignored: already posted ${status.state}`, {status: 200})
   }
 
   const response = await fetchFn(`${API}/repos/${repo.full_name}/statuses/${payload.sha}`, {

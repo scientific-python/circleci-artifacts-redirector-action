@@ -1,7 +1,7 @@
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import worker, { handle, verifySignature, mintToken, readConfig, clearCache, CONFIG_PATH, TOKEN_TTL_MS, CONFIG_TTL_MS } from './index.js'
+import worker, { handle, verifySignature, mintToken, readConfig, clearCache, CONFIG_PATH, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS } from './index.js'
 import { parseConfig, normalizeConfig } from '../src/config.js'
 
 beforeEach(clearCache)
@@ -288,4 +288,37 @@ test('the app never posts a pending status, whatever the config says', async () 
     assert.ok(!seen.some((r) => r.url.includes('/statuses/')), 'nothing posted')
     assert.ok(!seen.some((r) => r.url.includes('/artifacts')), 'and no CircleCI call')
   }
+})
+
+test('a duplicate delivery does not post the status twice', async () => {
+  const {fetchFn, seen} = backend()
+  const first = await handle(webhook(PAYLOAD), ENV, {fetchFn})
+  const second = await handle(webhook(PAYLOAD), ENV, {fetchFn})
+
+  assert.match(await first.text(), /^posted success/)
+  assert.match(await second.text(), /already posted/)
+  assert.equal(seen.filter((r) => r.url.includes('/statuses/')).length, 1, 'posted once')
+})
+
+test('but a different result for the same commit still posts', async () => {
+  const {fetchFn: pendingFetch} = backend()
+  await handle(webhook(PAYLOAD), ENV, {fetchFn: pendingFetch})
+
+  // same sha and context, different artifacts (e.g. a re-run) -> must post
+  const other = {url: 'https://output.circle-artifacts.com/output/job/zzz/artifacts/0/doc/other.html'}
+  const {fetchFn, seen} = backend({artifacts: {items: [other]}})
+  const response = await handle(webhook(PAYLOAD), ENV, {fetchFn})
+  assert.match(await response.text(), /^posted success/)
+  assert.equal(seen.filter((r) => r.url.includes('/statuses/')).length, 1)
+})
+
+test('the dedupe window expires', async () => {
+  const {fetchFn, seen} = backend()
+  let clock = 5_000_000
+  const now = () => clock
+  await handle(webhook(PAYLOAD), ENV, {fetchFn, now})
+  clock += DEDUPE_TTL_MS + 1
+  const response = await handle(webhook(PAYLOAD), ENV, {fetchFn, now})
+  assert.match(await response.text(), /^posted success/)
+  assert.equal(seen.filter((r) => r.url.includes('/statuses/')).length, 2)
 })
