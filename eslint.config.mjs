@@ -1,17 +1,11 @@
 import { defineConfig } from 'eslint/config'
 import globals from 'globals'
 import js from '@eslint/js'
-import { FlatCompat } from '@eslint/eslintrc'
-
-const compat = new FlatCompat({
-    recommendedConfig: js.configs.recommended,
-    allConfig: js.configs.all
-})
 
 export default defineConfig([{
     ignores: ['dist/**'],
 }, {
-    extends: compat.extends('eslint:recommended'),
+    extends: [js.configs.recommended],
 
     languageOptions: {
         globals: {

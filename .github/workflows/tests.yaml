@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: '24.x'
       - run: which node && node --version && which npm && npm --version
-      - run: npm install
+      - run: npm ci
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd  # v3.0.1
       - run: npm run coverage
       - uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5
