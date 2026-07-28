@@ -34592,6 +34592,7 @@ var __webpack_exports__ = {};
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
+  x6: () => (/* binding */ fetchJson),
   O$: () => (/* binding */ legacyArtifactsUrl),
   BH: () => (/* binding */ pickJob),
   Qc: () => (/* binding */ redirectUrl),
@@ -37304,7 +37305,7 @@ function exportVariable(name, val) {
  * ```
  */
 function core_setSecret(secret) {
-    issueCommand('add-mask', {}, secret);
+    command_issueCommand('add-mask', {}, secret);
 }
 /**
  * Prepends inputPath to the PATH (for this action and future actions)
@@ -44062,6 +44063,18 @@ function statusFor(payloadState, hasArtifacts, path) {
   return {state: 'failure', description: 'No artifacts found'}
 }
 
+// Fetch JSON from the CircleCI API, failing loudly on a non-2xx response.
+// Without this a 404 or a rate limit surfaces as a confusing "cannot read
+// properties of undefined" from the caller.
+async function fetchJson(fetchFn, url, options) {
+  const response = await fetchFn(url, options)
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    throw new Error(`CircleCI API returned ${response.status} for ${url}: ${body.slice(0, 200)}`)
+  }
+  return response.json()
+}
+
 // The context/fetch/octokit arguments exist so that tests can inject fakes;
 // in production the defaults are always used.
 async function run({context = github_context, fetchFn = fetch, getOctokit = github_getOctokit} = {}) {
@@ -44071,7 +44084,16 @@ async function run({context = github_context, fetchFn = fetch, getOctokit = gith
     const path = getInput('artifact-path', {required: true})
     const token = getInput('repo-token', {required: true})
     const apiToken = getInput('api-token', {required: false})
-    const jobNames = (getInput('circleci-jobs', {required: false}) || 'build_docs,doc,build').split(',')
+    if (apiToken !== '') {
+      // Keep the token out of the logs, including any future logging of it
+      core_setSecret(apiToken)
+      core_debug('Successfully read CircleCI API token')
+    }
+    // Tolerate spaces after the commas, e.g. "build_docs, doc"
+    const jobNames = (getInput('circleci-jobs', {required: false}) || 'build_docs,doc,build')
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name !== '')
 
     // Each job reports itself as a "ci/circleci: <name>" status context
     const contexts = jobNames.map((name) => `ci/circleci: ${name}`)
@@ -44084,6 +44106,11 @@ async function run({context = github_context, fetchFn = fetch, getOctokit = gith
     core_debug(`context:    ${payload.context}`)
     core_debug(`state:      ${payload.state}`)
     core_debug(`target_url: ${payload.target_url}`)
+    if (!payload.target_url) {
+      // Some status events carry no URL at all, so there is nothing to link to
+      core_debug('Ignoring status with no target_url')
+      return
+    }
     // e.g., https://circleci.com/gh/mne-tools/mne-python/53315
     // e.g., https://circleci.com/gh/scientific-python/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
     const target = payload.target_url.split('?')[0]   // strip any ?utm=…
@@ -44096,8 +44123,7 @@ async function run({context = github_context, fetchFn = fetch, getOctokit = gith
       const workflowId = target.split('/').at(-1)
       core_debug(`workflow: ${workflowId}`)
 
-      const jobsRes = await fetchFn(`https://circleci.com/api/v2/workflow/${workflowId}/job`)
-      const jobs = await jobsRes.json()
+      const jobs = await fetchJson(fetchFn, `https://circleci.com/api/v2/workflow/${workflowId}/job`)
       if (!jobs.items.length) {
         setFailed(`No jobs returned for workflow ${workflowId}`)
         return
@@ -44113,16 +44139,11 @@ async function run({context = github_context, fetchFn = fetch, getOctokit = gith
     }
 
     core_debug(`Fetching JSON: ${artifactsUrl}`)
-    if (apiToken !== '') {
-      core_debug(`Successfully read CircleCI API token ${apiToken}`)
-    }
     // CircleCI wants a literal "null" token for public projects
     const headers = {'Circle-Token': apiToken || 'null', 'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
     // e.g., https://circleci.com/api/v2/project/gh/scientific-python/circleci-artifacts-redirector-action/94/artifacts
-    const response = await fetchFn(artifactsUrl, {headers})
-    const artifacts = await response.json()
-    core_debug(`Artifacts JSON (status=${response.status}):`)
-    core_debug(JSON.stringify(artifacts))
+    const artifacts = await fetchJson(fetchFn, artifactsUrl, {headers})
+    core_debug(`Artifacts JSON: ${JSON.stringify(artifacts)}`)
     // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
     const url = redirectUrl(artifacts.items, path, getInput('domain'), payload.target_url)
     core_debug(`Linking to: ${url}`)
@@ -44155,9 +44176,10 @@ if (import.meta.url === (0,external_node_url_.pathToFileURL)(process.argv[1]).hr
   run()
 }
 
+var __webpack_exports__fetchJson = __webpack_exports__.x6;
 var __webpack_exports__legacyArtifactsUrl = __webpack_exports__.O$;
 var __webpack_exports__pickJob = __webpack_exports__.BH;
 var __webpack_exports__redirectUrl = __webpack_exports__.Qc;
 var __webpack_exports__run = __webpack_exports__.eF;
 var __webpack_exports__statusFor = __webpack_exports__.SR;
-export { __webpack_exports__legacyArtifactsUrl as legacyArtifactsUrl, __webpack_exports__pickJob as pickJob, __webpack_exports__redirectUrl as redirectUrl, __webpack_exports__run as run, __webpack_exports__statusFor as statusFor };
+export { __webpack_exports__fetchJson as fetchJson, __webpack_exports__legacyArtifactsUrl as legacyArtifactsUrl, __webpack_exports__pickJob as pickJob, __webpack_exports__redirectUrl as redirectUrl, __webpack_exports__run as run, __webpack_exports__statusFor as statusFor };
