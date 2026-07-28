@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { run } from './index.js'
+import { run, pickJob, legacyArtifactsUrl, redirectUrl, statusFor } from './index.js'
 
 const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain']
 const OUTPUT_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'redirector-')), 'output.txt')
@@ -12,7 +12,7 @@ const ARTIFACT = {url: 'https://output.circle-artifacts.com/output/job/abc/artif
 // Run the action against fake CircleCI/GitHub backends. `bodies` are returned
 // by successive fetch() calls, and the recorded requests, the `url` output and
 // the commit status that was created are handed back for inspection.
-async function runAction({inputs = {}, payload = {}, bodies = []} = {}) {
+async function runAction({inputs = {}, payload = {}, bodies = [], fetchError} = {}) {
   fs.writeFileSync(OUTPUT_FILE, '')
   process.env.GITHUB_OUTPUT = OUTPUT_FILE
   for (const name of INPUTS) {
@@ -26,6 +26,9 @@ async function runAction({inputs = {}, payload = {}, bodies = []} = {}) {
   const requests = []
   const fetchFn = async (url, options) => {
     requests.push({url, options})
+    if (fetchError !== undefined) {
+      throw fetchError
+    }
     return {status: 200, json: async () => bodies.shift()}
   }
   let status = null
@@ -166,4 +169,42 @@ test('a bad response fails the job', async () => {
   assert.equal(status, null)
   assert.equal(process.exitCode, 1)  // core.setFailed()
   process.exitCode = 0
+})
+
+test('a thrown non-Error fails the job', async () => {
+  const {status} = await runAction({fetchError: 'kaboom'})
+  assert.equal(status, null)
+  assert.equal(process.exitCode, 1)  // core.setFailed()
+  process.exitCode = 0
+})
+
+// Unit tests for the pieces run() is built from
+
+test('pickJob', () => {
+  const lint = {name: 'lint'}
+  const docs = {name: 'docs'}
+  assert.equal(pickJob([lint], ['docs']), lint, 'a lone job is used even if unnamed')
+  assert.equal(pickJob([lint, docs], ['docs']), docs, 'a named job wins over an earlier one')
+  assert.equal(pickJob([lint, docs], ['nope']), lint, 'no match falls back to the first job')
+})
+
+test('legacyArtifactsUrl', () => {
+  assert.equal(
+    legacyArtifactsUrl('https://circleci.com/gh/mne-tools/mne-python/53315'),
+    'https://circleci.com/api/v2/project/gh/mne-tools/mne-python/53315/artifacts',
+  )
+})
+
+test('redirectUrl', () => {
+  assert.equal(
+    redirectUrl([ARTIFACT], 'doc/index.html', 'example.org', 'https://fallback'),
+    'https://example.org/output/job/abc/artifacts/doc/index.html',
+  )
+  assert.equal(redirectUrl([], 'doc/index.html', 'example.org', 'https://fallback'), 'https://fallback')
+})
+
+test('statusFor', () => {
+  assert.deepEqual(statusFor('pending', false, 'p'), {state: 'pending', description: 'Waiting for CircleCI ...'})
+  assert.deepEqual(statusFor('failure', true, 'p'), {state: 'success', description: 'Link to p'})
+  assert.deepEqual(statusFor('success', false, 'p'), {state: 'failure', description: 'No artifacts found'})
 })

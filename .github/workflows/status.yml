@@ -4,6 +4,7 @@ jobs:
     permissions:
       statuses: write
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: "${{ github.event.context == 'ci/circleci: build' }}"
     name: CircleCI artifacts redirector status
     outputs:
@@ -20,7 +21,7 @@ jobs:
       - name: Print expected ref
         run: echo SHA=${{ github.event.sha }}
       - name: Checkout repo
-        uses: actions/checkout@master
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ github.event.sha }}
       - name: Check history
@@ -35,13 +36,15 @@ jobs:
         id: run-circleci-artifacts-redirector
 
   use_outputs_status_job:
+    permissions: {}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [circleci_artifacts_redirector_status_job]
     name: Use the status output
     if: github.event.state != 'pending'
     steps:
       - name: Checkout repo
-        uses: actions/checkout@master
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ github.event.sha }}
       - name: Get expected commit

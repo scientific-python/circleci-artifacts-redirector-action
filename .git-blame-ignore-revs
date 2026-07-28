@@ -1,0 +1,8 @@
+# Revisions listed here are ignored by `git blame` (and by GitHub's blame view).
+# Add style-only commits, never ones that change behavior.
+#
+# Run this once locally to make git use it by default:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# STY: Enforce code style with ESLint rules (#115)
+f867cf6c6db0ad1d9cfe111d27795b8d13d72d6b

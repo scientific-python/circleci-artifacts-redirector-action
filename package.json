@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "package": "ncc build index.js -o dist",
     "test": "eslint . && node --test",
-    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='**/*.test.js' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=lcov.info"
+    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='**/*.test.js' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=lcov.info"
   },
   "repository": {
     "type": "git",

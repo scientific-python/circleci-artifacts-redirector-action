@@ -34592,7 +34592,11 @@ var __webpack_exports__ = {};
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
-  e: () => (/* binding */ run)
+  O$: () => (/* binding */ legacyArtifactsUrl),
+  BH: () => (/* binding */ pickJob),
+  Qc: () => (/* binding */ redirectUrl),
+  eF: () => (/* binding */ run),
+  SR: () => (/* binding */ statusFor)
 });
 
 ;// CONCATENATED MODULE: external "os"
@@ -44016,6 +44020,48 @@ function fixResponseChunkedTransferBadEnding(request, errorCallback) {
 
 
 
+// Pick the job whose artifacts should be linked. A single-job workflow is
+// unambiguous; otherwise prefer a job the user asked for, and fall back to the
+// first one.
+function pickJob(items, jobNames) {
+  if (items.length === 1) {
+    return items[0]
+  }
+  return items.find((job) => jobNames.includes(job.name)) ?? items[0]
+}
+
+// Turn a legacy OAuth target_url (…/gh/<org>/<repo>/<build>) into the v2
+// artifacts endpoint.
+function legacyArtifactsUrl(target) {
+  const [orgId, repoId, buildId] = new URL(target).pathname.split('/').slice(-3)
+  return `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
+}
+
+// Build the URL to link to: the requested artifact if anything was uploaded,
+// otherwise the CircleCI job itself (rewriting the domain only makes sense for
+// artifact URLs).
+function redirectUrl(items, path, domain, fallback) {
+  if (!items.length) {
+    return fallback
+  }
+  // e.g., https://output.circle-artifacts.com/output/job/<uuid>/artifacts/0/doc/index.html
+  const job = items[0].url.split('/output/')[1].split('/artifacts/')[0]
+  return `https://${domain}/output/${job}/artifacts/${path}`
+}
+
+// The status reports whether the link is usable, not whether the CircleCI job
+// passed (gh-57): a job can fail late and still upload good artifacts, and the
+// job's own status already reports the failure.
+function statusFor(payloadState, hasArtifacts, path) {
+  if (payloadState === 'pending') {
+    return {state: payloadState, description: 'Waiting for CircleCI ...'}
+  }
+  if (hasArtifacts) {
+    return {state: 'success', description: `Link to ${path}`}
+  }
+  return {state: 'failure', description: 'No artifacts found'}
+}
+
 // The context/fetch/octokit arguments exist so that tests can inject fakes;
 // in production the defaults are always used.
 async function run({context = github_context, fetchFn = fetch, getOctokit = github_getOctokit} = {}) {
@@ -44024,160 +44070,81 @@ async function run({context = github_context, fetchFn = fetch, getOctokit = gith
     const payload = context.payload
     const path = getInput('artifact-path', {required: true})
     const token = getInput('repo-token', {required: true})
-    let apiToken = getInput('api-token', {required: false})
-    let circleciJobs = getInput('circleci-jobs', {required: false})
-    if (circleciJobs === '') {
-      circleciJobs = 'build_docs,doc,build'
-    }
+    const apiToken = getInput('api-token', {required: false})
+    const jobNames = (getInput('circleci-jobs', {required: false}) || 'build_docs,doc,build').split(',')
 
-    // Split circleJobs into an array of job names
-    const circleciJobNames = circleciJobs.split(',')
-
-    //  Defines a variable to help prefix each job name with ci/circleci
-    const prepender = x => `ci/circleci: ${x}`
-    circleciJobs = circleciJobNames.map(prepender)
-    core_debug(`Considering CircleCI jobs named: ${circleciJobs}`)
-
-    if (circleciJobs.indexOf(payload.context) < 0) {
+    // Each job reports itself as a "ci/circleci: <name>" status context
+    const contexts = jobNames.map((name) => `ci/circleci: ${name}`)
+    core_debug(`Considering CircleCI jobs named: ${contexts}`)
+    if (!contexts.includes(payload.context)) {
       core_debug(`Ignoring context: ${payload.context}`)
       return
     }
 
-    // Read out 'state' (whether CircleCI process was successful or not), then
-    //  store in debug output along with the target_url
-    let state = payload.state
     core_debug(`context:    ${payload.context}`)
-    core_debug(`state:      ${state}`)
+    core_debug(`state:      ${payload.state}`)
     core_debug(`target_url: ${payload.target_url}`)
     // e.g., https://circleci.com/gh/mne-tools/mne-python/53315
     // e.g., https://circleci.com/gh/scientific-python/circleci-artifacts-redirector-action/94?utm_campaign=vcs-integration-link&utm_medium=referral&utm_source=github-build-link
-    // Set the new status
-    let artifacts_url = ''
     const target = payload.target_url.split('?')[0]   // strip any ?utm=…
+    let artifactsUrl = ''
     if (target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow/')) {
       // ───── New GitHub‑App URL ───────────────────────────────────────────
       // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
       // OR
       // .../workflow/<workflow-id>
-      const workflowId = target.split('/').pop()
+      const workflowId = target.split('/').at(-1)
       core_debug(`workflow: ${workflowId}`)
 
-      // 1. Get the jobs that belong to this workflow
-      const jobsRes = await fetchFn(
-        `https://circleci.com/api/v2/workflow/${workflowId}/job`
-      )
+      const jobsRes = await fetchFn(`https://circleci.com/api/v2/workflow/${workflowId}/job`)
       const jobs = await jobsRes.json()
       if (!jobs.items.length) {
         setFailed(`No jobs returned for workflow ${workflowId}`)
         return
       }
 
-      // 2. Identify and select the relevant job
-      // The simplest case is when a workflow contains only a single job, just
-      //  select the first entry
-      let job = null
-      if (jobs.items.length === 1) {
-        job = jobs.items[0]
-        core_debug('Workflow contains one job.')
-      }
-      // If there are multiple jobs in the workflow, select the first one that
-      //  matches one of the job names passed to the action.
-      else {
-        for (const jobItem of jobs.items) {
-          core_debug(`Checking job: ${jobItem.name} against ${circleciJobNames.join(',')}`)
-          if (circleciJobNames.includes(jobItem.name)) {
-            job = jobItem
-            break
-          }
-        }
-
-        // In the case where no matching job is found, use the first job
-        if (job == null) {
-          job = jobs.items[0]
-          core_debug(`No matching job found for ${circleciJobNames.join(', ')}. Using first job: ${job.name}`)
-        }
-      }
-
-      // Extract the project slug and job number from the selected job
-      const projectSlug = job.project_slug  // "circleci/<org‑id>/<project‑id>"
-      const jobNumber   = job.job_number
-
-      core_debug(`slug:  ${projectSlug}`)
-      core_debug(`job#:  ${jobNumber}`)
-
-      // 3. Construct the v2 artifacts endpoint
-      artifacts_url = `https://circleci.com/api/v2/project/${projectSlug}/${jobNumber}/artifacts`
+      const job = pickJob(jobs.items, jobNames)
+      core_debug(`Using job ${job.name} of ${jobs.items.map((item) => item.name).join(', ')}`)
+      core_debug(`slug:  ${job.project_slug}`)  // "circleci/<org‑id>/<project‑id>"
+      core_debug(`job#:  ${job.job_number}`)
+      artifactsUrl = `https://circleci.com/api/v2/project/${job.project_slug}/${job.job_number}/artifacts`
     } else {
-      // ───── Legacy OAuth URL (…/gh/<org>/<repo>/<build>) ────────────────
-      const parts    = target.split('/')
-      const orgId    = parts.slice(-3)[0]
-      const repoId   = parts.slice(-2)[0]
-      const buildId  = parts.slice(-1)[0]
+      artifactsUrl = legacyArtifactsUrl(target)
+    }
 
-      artifacts_url =
-        `https://circleci.com/api/v2/project/gh/${orgId}/${repoId}/${buildId}/artifacts`
-    }
-    core_debug(`Fetching JSON: ${artifacts_url}`)
-    if (apiToken == null || apiToken === '') {
-      apiToken = 'null'
-    }
-    else {
+    core_debug(`Fetching JSON: ${artifactsUrl}`)
+    if (apiToken !== '') {
       core_debug(`Successfully read CircleCI API token ${apiToken}`)
     }
-    const headers = {'Circle-Token': apiToken, 'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
+    // CircleCI wants a literal "null" token for public projects
+    const headers = {'Circle-Token': apiToken || 'null', 'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
     // e.g., https://circleci.com/api/v2/project/gh/scientific-python/circleci-artifacts-redirector-action/94/artifacts
-    const response = await fetchFn(artifacts_url, {headers})
+    const response = await fetchFn(artifactsUrl, {headers})
     const artifacts = await response.json()
     core_debug(`Artifacts JSON (status=${response.status}):`)
     core_debug(JSON.stringify(artifacts))
     // e.g., {"next_page_token":null,"items":[{"path":"test_artifacts/root_artifact.md","node_index":0,"url":"https://output.circle-artifacts.com/output/job/6fdfd148-31da-4a30-8e89-a20595696ca5/artifacts/0/test_artifacts/root_artifact.md"}]}
-    let url = ''
-    const hasArtifacts = artifacts.items.length > 0
-    if (hasArtifacts) {
-      url = `${artifacts.items[0].url.split('/artifacts/')[0]}/artifacts/${path}`
-      // Set root domain
-      const domain = getInput('domain')
-      url = `https://${domain}/output/${url.split('/output/')[1]}`
-    }
-    else {
-      // Nothing was uploaded, so the best we can do is link to the job itself.
-      // (Rewriting the domain only makes sense for artifact URLs.)
-      url = payload.target_url
-    }
+    const url = redirectUrl(artifacts.items, path, getInput('domain'), payload.target_url)
     core_debug(`Linking to: ${url}`)
     core_debug((new Date()).toTimeString())
     setOutput('url', url)
+
+    const {state, description} = statusFor(payload.state, artifacts.items.length > 0, path)
+    const jobTitle = getInput('job-title', {required: false}) || `${payload.context} artifact`
     const client = getOctokit(token)
-    // The status reports whether the link is usable, not whether the CircleCI
-    // job passed (gh-57): a job can fail late and still upload good artifacts,
-    // and the job's own status already reports the failure.
-    let description = ''
-    if (payload.state === 'pending') {
-      description = 'Waiting for CircleCI ...'
-    }
-    else if (hasArtifacts) {
-      state = 'success'
-      description = `Link to ${path}`
-    }
-    else {
-      state = 'failure'
-      description = 'No artifacts found'
-    }
-    let job_title = getInput('job-title', {required: false})
-    if (job_title === '') {
-      job_title = `${payload.context} artifact`
-    }
     return client.rest.repos.createCommitStatus({
       repo: context.repo.repo,
       owner: context.repo.owner,
       sha: payload.sha,
-      state: state,
+      state,
       target_url: url,
-      description: description,
-      context: job_title
+      description,
+      context: jobTitle
     })
   } catch (error) {
-    setFailed(error.message)
+    // Keep the failure itself readable; the stack is there with debug logging
+    core_debug(error.stack ?? String(error))
+    setFailed(error.message ?? String(error))
   }
 }
 
@@ -44188,5 +44155,9 @@ if (import.meta.url === (0,external_node_url_.pathToFileURL)(process.argv[1]).hr
   run()
 }
 
-var __webpack_exports__run = __webpack_exports__.e;
-export { __webpack_exports__run as run };
+var __webpack_exports__legacyArtifactsUrl = __webpack_exports__.O$;
+var __webpack_exports__pickJob = __webpack_exports__.BH;
+var __webpack_exports__redirectUrl = __webpack_exports__.Qc;
+var __webpack_exports__run = __webpack_exports__.eF;
+var __webpack_exports__statusFor = __webpack_exports__.SR;
+export { __webpack_exports__legacyArtifactsUrl as legacyArtifactsUrl, __webpack_exports__pickJob as pickJob, __webpack_exports__redirectUrl as redirectUrl, __webpack_exports__run as run, __webpack_exports__statusFor as statusFor };
