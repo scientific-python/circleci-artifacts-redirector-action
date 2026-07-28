@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { run, pickJob, legacyArtifactsUrl, redirectUrl, statusFor } from './index.js'
+import { run, pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson } from './index.js'
 
 const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain']
 const OUTPUT_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'redirector-')), 'output.txt')
@@ -12,7 +12,7 @@ const ARTIFACT = {url: 'https://output.circle-artifacts.com/output/job/abc/artif
 // Run the action against fake CircleCI/GitHub backends. `bodies` are returned
 // by successive fetch() calls, and the recorded requests, the `url` output and
 // the commit status that was created are handed back for inspection.
-async function runAction({inputs = {}, payload = {}, bodies = [], fetchError} = {}) {
+async function runAction({inputs = {}, payload = {}, bodies = [], fetchError, httpStatus = 200} = {}) {
   fs.writeFileSync(OUTPUT_FILE, '')
   process.env.GITHUB_OUTPUT = OUTPUT_FILE
   for (const name of INPUTS) {
@@ -29,7 +29,12 @@ async function runAction({inputs = {}, payload = {}, bodies = [], fetchError} = 
     if (fetchError !== undefined) {
       throw fetchError
     }
-    return {status: 200, json: async () => bodies.shift()}
+    return {
+      ok: httpStatus < 400,
+      status: httpStatus,
+      json: async () => bodies.shift(),
+      text: async () => JSON.stringify(bodies.shift()),
+    }
   }
   let status = null
   const getOctokit = () => ({rest: {repos: {createCommitStatus: async (s) => { status = s }}}})
@@ -46,6 +51,20 @@ async function runAction({inputs = {}, payload = {}, bodies = [], fetchError} = 
   await run({context, fetchFn, getOctokit})
   const url = fs.readFileSync(OUTPUT_FILE, 'utf8').split(os.EOL)[1]
   return {requests, url, status}
+}
+
+// Collect everything written to stdout (the ::debug::/::error:: workflow
+// commands) while fn runs.
+async function captureStdout(fn) {
+  const written = []
+  const original = process.stdout.write
+  process.stdout.write = (chunk) => { written.push(String(chunk)); return true }
+  try {
+    await fn()
+  } finally {
+    process.stdout.write = original
+  }
+  return written.join('')
 }
 
 test('legacy CircleCI URL', async () => {
@@ -207,4 +226,66 @@ test('statusFor', () => {
   assert.deepEqual(statusFor('pending', false, 'p'), {state: 'pending', description: 'Waiting for CircleCI ...'})
   assert.deepEqual(statusFor('failure', true, 'p'), {state: 'success', description: 'Link to p'})
   assert.deepEqual(statusFor('success', false, 'p'), {state: 'failure', description: 'No artifacts found'})
+})
+
+// Tier 1 fixes
+
+test('the api token is masked and never logged', async () => {
+  process.env.RUNNER_DEBUG = '1'  // make core.debug() actually write
+  let out
+  try {
+    out = await captureStdout(
+      () => runAction({inputs: {'api-token': 'super-secret'}, bodies: [{items: [ARTIFACT]}]}))
+  } finally {
+    delete process.env.RUNNER_DEBUG
+  }
+  assert.ok(out.includes('::add-mask::super-secret'), 'the token is registered as a secret')
+  assert.ok(
+    !out.split('::add-mask::super-secret').join('').includes('super-secret'),
+    'the token appears nowhere else in the log',
+  )
+})
+
+test('job names are trimmed', async () => {
+  const {requests} = await runAction({
+    inputs: {'circleci-jobs': 'build_docs, docs'},
+    payload: {context: 'ci/circleci: docs'},
+    bodies: [{items: [ARTIFACT]}],
+  })
+  assert.equal(requests.length, 1, 'a name with a leading space still matches')
+})
+
+test('a status with no target_url is ignored', async () => {
+  const {requests, status} = await runAction({payload: {target_url: null}})
+  assert.deepEqual(requests, [])
+  assert.equal(status, null)
+  assert.equal(process.exitCode, 0, 'ignored, not failed')
+})
+
+test('an HTTP error fails the job with a useful message', async () => {
+  let result
+  const out = await captureStdout(async () => {
+    result = await runAction({httpStatus: 429, bodies: [{message: 'slow down'}]})
+  })
+  assert.equal(result.status, null)
+  assert.equal(process.exitCode, 1)  // core.setFailed()
+  process.exitCode = 0
+  assert.match(out, /::error::CircleCI API returned 429 for /)
+  assert.match(out, /slow down/)
+})
+
+test('fetchJson', async () => {
+  const okResponse = {ok: true, status: 200, json: async () => ({items: []})}
+  assert.deepEqual(await fetchJson(async () => okResponse, 'https://x'), {items: []})
+
+  const badResponse = {ok: false, status: 404, text: async () => 'no such project'}
+  await assert.rejects(
+    () => fetchJson(async () => badResponse, 'https://x'),
+    /returned 404 for https:\/\/x: no such project/,
+    'the status and body make it into the message',
+  )
+
+  // An unreadable body should not mask the status code
+  const unreadable = {ok: false, status: 500, text: async () => { throw new Error('nope') }}
+  await assert.rejects(() => fetchJson(async () => unreadable, 'https://x'), /returned 500/)
 })
