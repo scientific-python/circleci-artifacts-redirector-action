@@ -2,6 +2,8 @@ version: 2.1
 orbs:
   # We should periodically update this, last updated 2026-06-10
   node: circleci/node@7.2.1
+  # We should periodically update this, last updated 2026-07-28
+  codecov: codecov/codecov@6.0.0
 jobs:
   build:
     docker:
@@ -14,7 +16,11 @@ jobs:
           node-version: '24.16.0'
       - run: node --version
       - run: npm install
-      - run: npm test
+      - run: npm run lint
+      - run: npm run coverage
+      - codecov/upload:
+          files: lcov.info
+          flags: circleci
       - run: mkdir ~/my_test_artifacts
       - run: echo "This should point to root_artifact.md for commit on CIRCLE_BRANCH=${CIRCLE_BRANCH} in CIRCLE_PR_NUMBER=${CIRCLE_PR_NUMBER} for commit ${CIRCLE_SHA1}" | tee ~/my_test_artifacts/root_artifact.md
       - store_artifacts:
