@@ -1,7 +1,7 @@
 {
-  "name": "javascript-action",
+  "name": "circleci-artifacts-redirector-action",
   "version": "1.0.0",
-  "description": "JavaScript Action Template",
+  "description": "GitHub Action creating a direct link to CircleCI artifacts",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -12,29 +12,32 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/actions/javascript-action.git"
+    "url": "git+https://github.com/scientific-python/circleci-artifacts-redirector-action.git"
   },
   "keywords": [
     "GitHub",
     "Actions",
-    "JavaScript"
+    "CircleCI",
+    "artifacts"
   ],
-  "author": "GitHub",
+  "author": "Eric Larson",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/actions/javascript-action/issues"
+    "url": "https://github.com/scientific-python/circleci-artifacts-redirector-action/issues"
   },
-  "homepage": "https://github.com/actions/javascript-action#readme",
+  "homepage": "https://github.com/scientific-python/circleci-artifacts-redirector-action#readme",
   "dependencies": {
     "@actions/core": "^3.0.1",
-    "@actions/github": "^9.1.1",
-    "node-fetch": "^3.3.2"
+    "@actions/github": "^9.1.1"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^10.0.1",
     "@vercel/ncc": "^0.44.0",
     "eslint": "^10.4.1",
     "globals": "^17.6.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=24"
   }
 }

@@ -9,7 +9,6 @@
 
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import fetch from 'node-fetch'
 import { pathToFileURL } from 'node:url'
 
 // Pick the job whose artifacts should be linked. A single-job workflow is
@@ -68,7 +67,7 @@ export async function fetchJson(fetchFn, url, options) {
 
 // The context/fetch/octokit arguments exist so that tests can inject fakes;
 // in production the defaults are always used.
-export async function run({context = github.context, fetchFn = fetch, getOctokit = github.getOctokit} = {}) {
+export async function run({context = github.context, fetchFn = globalThis.fetch, getOctokit = github.getOctokit} = {}) {
   try {
     core.debug((new Date()).toTimeString())
     const payload = context.payload
