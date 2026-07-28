@@ -152,6 +152,8 @@ test('surfaces failures to read config or mint a token', async () => {
 })
 
 test('verifySignature rejects malformed headers', async () => {
+  assert.equal(await verifySignature('', 'body', sign('body')), false, 'an empty secret never verifies')
+  assert.equal(await verifySignature(undefined, 'body', sign('body')), false, 'nor an unset one')
   for (const header of [null, 'sha1=abc', 'sha256=nothex', 'sha256=' + 'a'.repeat(63)]) {
     assert.equal(await verifySignature(SECRET, 'body', header), false, `rejected: ${header}`)
   }
@@ -265,4 +267,13 @@ test('does not cache a failure', async () => {
   fail = false
   const response = await handle(webhook(PAYLOAD), ENV, {fetchFn: flaky})
   assert.equal(response.status, 200, 'the next event retries instead of serving the failure')
+})
+
+test('a missing WEBHOOK_SECRET is a 401, not a crash', async () => {
+  const {fetchFn, seen} = backend()
+  for (const env of [{...ENV, WEBHOOK_SECRET: undefined}, {...ENV, WEBHOOK_SECRET: ''}]) {
+    const response = await handle(webhook(PAYLOAD), env, {fetchFn})
+    assert.equal(response.status, 401)
+    assert.deepEqual(seen, [])
+  }
 })

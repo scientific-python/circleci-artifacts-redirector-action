@@ -49,7 +49,9 @@ const UA = {'user-agent': 'circleci-artifacts-redirector-app', 'accept': 'applic
 
 // Constant-time-ish comparison of the webhook signature.
 export async function verifySignature(secret, body, signature) {
-  if (!signature || !signature.startsWith('sha256=')) {
+  // An unset secret must fail closed rather than throw: Web Crypto rejects a
+  // zero-length HMAC key, which would otherwise surface as a 500
+  if (!secret || !signature || !signature.startsWith('sha256=')) {
     return false
   }
   const key = await crypto.subtle.importKey(
