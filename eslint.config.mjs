@@ -8,14 +8,9 @@ export default defineConfig([{
     extends: [js.configs.recommended],
 
     languageOptions: {
-        globals: {
-            ...globals.commonjs,
-            ...globals.node,
-            Atomics: 'readonly',
-            SharedArrayBuffer: 'readonly',
-        },
+        globals: globals.node,
 
-        ecmaVersion: 2022,
+        ecmaVersion: 'latest',
         sourceType: 'module',
     },
 
