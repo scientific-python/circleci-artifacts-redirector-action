@@ -1,0 +1,3 @@
+name = "circleci-artifacts-redirector-app"
+main = "worker/index.js"
+compatibility_date = "2026-07-28"

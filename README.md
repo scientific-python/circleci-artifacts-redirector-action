@@ -82,6 +82,38 @@ jobs:
 > (rather than app) API and that this is always tied to the `master`/default
 > branch of a given repository.
 
+## GitHub App (prototype, not yet deployed)
+
+`worker/index.js` is a Cloudflare Worker that does the same job as the action,
+but as a GitHub App reacting to `status` webhooks server-side. The point is
+[#27](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/27):
+with the App there is no workflow, so there are **no workflow runs at all** —
+instead of one run per status event, most of which do nothing.
+
+Instead of a workflow file, a repo using the App has
+`.github/circleci-artifacts.yml`, which is the `with:` block of the old
+workflow with the indentation and `repo-token` removed:
+
+```yaml
+artifact-path: 0/doc/index.html
+circleci-jobs: build_docs
+job-title: Check the rendered docs here!
+```
+
+The config is always read from the **default branch**, so a pull request
+(including one from a fork) cannot change where the link points.
+
+Both front ends share `src/core.js` and `src/config.js`, so the two cannot
+drift apart: the same resolution logic and the same option defaults serve both.
+
+Differences from the action, by design:
+
+- No `url` output, because there is no workflow step to consume it.
+- Public CircleCI projects only: a private project needs an `api-token`, which
+  would mean storing each repo's CircleCI token server-side.
+
+The action is not going away; the App is a second way to run the same code.
+
 ## Limitations
 
 Currently has (known) limitations:
