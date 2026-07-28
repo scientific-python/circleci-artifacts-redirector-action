@@ -35,11 +35,40 @@ jobs:
           job-title: "See artifact here (status)!"
         id: run-circleci-artifacts-redirector
 
+  # The job above passes an api-token, so it only ever exercises the
+  # authenticated path. Public repos typically set no api-token at all, and
+  # that path broke without anyone noticing (gh-119), so cover it too.
+  circleci_artifacts_redirector_no_token_job:
+    permissions:
+      statuses: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: "${{ github.event.context == 'ci/circleci: build' }}"
+    name: CircleCI artifacts redirector status (no api-token)
+    outputs:
+      url: ${{ steps.run-circleci-artifacts-redirector-no-token.outputs.url }}
+    steps:
+      # WARNING!
+      # This repo uses the action in its own root directory.
+      # GitHub-action users should not do this!
+      # See README.md for usage instructions.
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.event.sha }}
+      - name: GitHub Action step
+        uses: ./
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          artifact-path: 0/test_artifacts/root_artifact.md
+          job-title: "See artifact here (no api-token)!"
+        id: run-circleci-artifacts-redirector-no-token
+
   use_outputs_status_job:
     permissions: {}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [circleci_artifacts_redirector_status_job]
+    needs: [circleci_artifacts_redirector_status_job, circleci_artifacts_redirector_no_token_job]
     name: Use the status output
     if: github.event.state != 'pending'
     steps:
@@ -53,3 +82,5 @@ jobs:
           echo ${{ github.event.sha }}
       - name: Check the URL
         run: curl -L --fail ${{ needs.circleci_artifacts_redirector_status_job.outputs.url }} | grep ${{ github.event.sha }}
+      - name: Check the URL from the run without an api-token
+        run: curl -L --fail ${{ needs.circleci_artifacts_redirector_no_token_job.outputs.url }} | grep ${{ github.event.sha }}
