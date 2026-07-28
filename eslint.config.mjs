@@ -9,6 +9,8 @@ const compat = new FlatCompat({
 });
 
 export default defineConfig([{
+    ignores: ["dist/**"],
+}, {
     extends: compat.extends("eslint:recommended"),
 
     languageOptions: {
@@ -19,7 +21,7 @@ export default defineConfig([{
             SharedArrayBuffer: "readonly",
         },
 
-        ecmaVersion: 2018,
+        ecmaVersion: 2022,
         sourceType: "module",
     },
 

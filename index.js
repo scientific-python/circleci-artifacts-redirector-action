@@ -10,11 +10,14 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import fetch from 'node-fetch'
+import { pathToFileURL } from 'node:url'
 
-async function run() {
+// The context/fetch/octokit arguments exist so that tests can inject fakes;
+// in production the defaults are always used.
+export async function run({context = github.context, fetchFn = fetch, getOctokit = github.getOctokit} = {}) {
   try {
     core.debug((new Date()).toTimeString())
-    const payload = github.context.payload
+    const payload = context.payload
     const path = core.getInput('artifact-path', {required: true})
     const token = core.getInput('repo-token', {required: true})
     var apiToken = core.getInput('api-token', {required: false})
@@ -56,7 +59,7 @@ async function run() {
       core.debug(`workflow: ${workflowId}`);
 
       // 1. Get the jobs that belong to this workflow
-      const jobsRes = await fetch(
+      const jobsRes = await fetchFn(
         `https://circleci.com/api/v2/workflow/${workflowId}/job`
       );
       const jobs = await jobsRes.json();
@@ -119,7 +122,7 @@ async function run() {
     }
     const headers = {'Circle-Token': apiToken, 'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
     // e.g., https://circleci.com/api/v2/project/gh/scientific-python/circleci-artifacts-redirector-action/94/artifacts
-    const response = await fetch(artifacts_url, {headers})
+    const response = await fetchFn(artifacts_url, {headers})
     const artifacts = await response.json()
     core.debug(`Artifacts JSON (status=${response.status}):`)
     core.debug(JSON.stringify(artifacts))
@@ -127,17 +130,19 @@ async function run() {
     var url = '';
     if (artifacts.items.length > 0) {
       url = `${artifacts.items[0].url.split('/artifacts/')[0]}/artifacts/${path}`
+      // Set root domain
+      var domain = core.getInput('domain')
+      url = `https://${domain}/output/${url.split('/output/')[1]}`
     }
     else {
+      // Nothing was uploaded, so the best we can do is link to the job itself.
+      // (Rewriting the domain only makes sense for artifact URLs.)
       url = payload.target_url;
     }
-    // Set root domain
-    var domain = core.getInput('domain')
-    url = `https://${domain}/output/${url.split('/output/')[1]}`
     core.debug(`Linking to: ${url}`)
     core.debug((new Date()).toTimeString())
     core.setOutput("url", url)
-    const client = github.getOctokit(token)
+    const client = getOctokit(token)
     var description = '';
     if (payload.state === 'pending') {
       description = 'Waiting for CircleCI ...'
@@ -150,8 +155,8 @@ async function run() {
       job_title = `${payload.context} artifact`
     }
     return client.rest.repos.createCommitStatus({
-      repo: github.context.repo.repo,
-      owner: github.context.repo.owner,
+      repo: context.repo.repo,
+      owner: context.repo.owner,
       sha: payload.sha,
       state: state,
       target_url: url,
@@ -163,4 +168,9 @@ async function run() {
   }
 }
 
-run()
+// Run only when invoked as the action entry point, so that index.test.js can
+// import run() without executing it (this survives the ncc bundling).
+/* node:coverage ignore next 3 */
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  run()
+}
