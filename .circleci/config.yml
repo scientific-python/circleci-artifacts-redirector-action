@@ -9,9 +9,8 @@ jobs:
     working_directory: ~/repo
     steps:
       - checkout
-      - node/install:
-          install-yarn: true
-          node-version: '24.16.0'
+      # Node version comes from .nvmrc
+      - node/install
       - run: node --version
       - run: npm ci
       - run: npm run lint

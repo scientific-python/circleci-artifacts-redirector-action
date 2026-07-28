@@ -33,7 +33,6 @@ inputs:
 outputs:
   url:
     description: 'The full redirect URL'
-on: status  # yamllint disable-line rule:truthy
 runs:
   using: 'node24'
   main: 'dist/index.js'
