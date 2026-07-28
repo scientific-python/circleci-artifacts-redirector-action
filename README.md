@@ -103,6 +103,10 @@ These changes will automatically be compiled into `dist/index.js` by the
 If you want to do the same work locally as the bot, use `npm install` to get
 all dependencies and then call `ncc build index.js -o dist`.
 
+Style-only commits are listed in `.git-blame-ignore-revs`; run
+`git config blame.ignoreRevsFile .git-blame-ignore-revs` once locally to have
+`git blame` skip them (GitHub's blame view uses the file automatically).
+
 Unit tests live in `index.test.js` and use the
 [Node.js test runner](https://nodejs.org/api/test.html). Run them with
 `npm test` (which also lints), or `npm run coverage` to additionally write an
