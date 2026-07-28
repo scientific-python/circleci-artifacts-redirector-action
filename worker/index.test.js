@@ -1,7 +1,7 @@
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import worker, { handle, verifySignature, mintToken, readConfig, clearCache, CONFIG_PATH, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS } from './index.js'
+import worker, { handle, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS } from './index.js'
 import { parseConfig, normalizeConfig } from '../src/config.js'
 
 beforeEach(clearCache)
@@ -42,17 +42,23 @@ function webhook(payload, {event = 'status', secret = SECRET, method = 'POST'} =
 
 // Fake GitHub + CircleCI. Returns the requests it saw so tests can assert on
 // what would have been posted.
-function backend({config = CONFIG, artifacts = {items: [ARTIFACT]}, statusCode = 201} = {}) {
+function backend({config = CONFIG, names = [CANONICAL_CONFIG], artifacts = {items: [ARTIFACT]}, statusCode = 201} = {}) {
   const seen = []
   const fetchFn = async (url, options = {}) => {
     seen.push({url, method: options.method ?? 'GET', body: options.body})
     if (url.endsWith('/access_tokens')) {
       return new Response(JSON.stringify({token: 'ghs_installation'}), {status: 201})
     }
-    if (url.includes(`/contents/${CONFIG_PATH}`)) {
-      return config === null
-        ? new Response('{}', {status: 404})
-        : new Response(JSON.stringify({content: btoa(config)}), {status: 200})
+    if (url.includes(`/contents/${CONFIG_DIR}?`)) {
+      if (config === null) {
+        return new Response('[]', {status: 200})   // .github exists, no config in it
+      }
+      const listing = [{type: 'dir', name: 'workflows', path: '.github/workflows'}]
+        .concat(names.map((name) => ({type: 'file', name, path: `${CONFIG_DIR}/${name}`})))
+      return new Response(JSON.stringify(listing), {status: 200})
+    }
+    if (url.includes(`/contents/${CONFIG_DIR}/`)) {
+      return new Response(JSON.stringify({content: btoa(config)}), {status: 200})
     }
     if (url.includes('/artifacts')) {
       return new Response(JSON.stringify(artifacts), {status: 200})
@@ -84,8 +90,9 @@ test('posts a status for a CircleCI event', async () => {
 test('reads the config from the default branch, not the event', async () => {
   const {fetchFn, seen} = backend()
   await handle(webhook(PAYLOAD), ENV, {fetchFn})
-  const read = seen.find((r) => r.url.includes(`/contents/${CONFIG_PATH}`))
-  assert.match(read.url, /\?ref=main$/, 'pinned to the default branch')
+  for (const read of seen.filter((r) => r.url.includes('/contents/'))) {
+    assert.match(read.url, /\?ref=main$/, 'pinned to the default branch')
+  }
 })
 
 test('rejects a bad signature before doing anything', async () => {
@@ -148,7 +155,7 @@ test('surfaces failures to read config or mint a token', async () => {
     ? new Response(JSON.stringify({token: 't'}), {status: 201})
     : new Response('{}', {status: 500})
   await assert.rejects(
-    () => handle(webhook(PAYLOAD), ENV, {fetchFn: badConfig}), new RegExp(`Could not read ${CONFIG_PATH}: 500`))
+    () => handle(webhook(PAYLOAD), ENV, {fetchFn: badConfig}), new RegExp(`Could not list ${CONFIG_DIR}: 500`))
 })
 
 test('verifySignature rejects malformed headers', async () => {
@@ -182,9 +189,21 @@ test('mintToken signs a real RS256 JWT', async () => {
   assert.ok(verified, 'the JWT signature checks out')
 })
 
-test('readConfig returns null when the file is missing', async () => {
-  const fetchFn = async () => new Response('{}', {status: 404})
-  assert.equal(await readConfig(fetchFn, {full_name: 'a/b', default_branch: 'main'}, 't'), null)
+test('readConfig returns null when there is nothing to read', async () => {
+  const repo = {full_name: 'a/b', default_branch: 'main'}
+  const missing = async () => new Response('{}', {status: 404})
+  assert.equal(await readConfig(missing, repo, 't'), null, 'no .github directory')
+
+  const empty = async () => new Response('[]', {status: 200})
+  assert.equal(await readConfig(empty, repo, 't'), null, 'no matching file')
+
+  const notADir = async () => new Response('{"type":"file"}', {status: 200})
+  assert.equal(await readConfig(notADir, repo, 't'), null, '.github is somehow a file')
+
+  const unreadable = async (url) => url.includes(`${CONFIG_DIR}?`)
+    ? new Response(JSON.stringify([{type: 'file', name: CANONICAL_CONFIG, path: `${CONFIG_DIR}/${CANONICAL_CONFIG}`}]), {status: 200})
+    : new Response('{}', {status: 500})
+  await assert.rejects(() => readConfig(unreadable, repo, 't'), /Could not read .github\/circleci-artifacts.yml: 500/)
 })
 
 test('parseConfig handles the shapes a migrated workflow produces', () => {
@@ -321,4 +340,28 @@ test('the dedupe window expires', async () => {
   const response = await handle(webhook(PAYLOAD), ENV, {fetchFn, now})
   assert.match(await response.text(), /^posted success/)
   assert.equal(seen.filter((r) => r.url.includes('/statuses/')).length, 2)
+})
+
+test('the config file may use any of the usual spellings', async () => {
+  for (const name of ['circleci-artifacts.yml', 'circleci_artifacts.yml', 'circle-artifacts.yml',
+                      'circle_artifacts.yml', 'circle_artifacts.yaml']) {
+    clearCache()
+    const {fetchFn, seen} = backend({names: [name]})
+    const response = await handle(webhook(PAYLOAD), ENV, {fetchFn})
+    assert.match(await response.text(), /^posted success/, name)
+    assert.ok(seen.some((r) => r.url.includes(`/contents/${CONFIG_DIR}/${name}`)), `read ${name}`)
+  }
+})
+
+test('unrelated files in .github are not mistaken for config', () => {
+  for (const name of ['dependabot.yml', 'release.yml', 'circleci-artifacts.txt', 'my-circle-artifacts.yml']) {
+    assert.equal(CONFIG_NAME.test(name), false, name)
+  }
+})
+
+test('the documented spelling wins when a repo has several', async () => {
+  const {fetchFn, seen} = backend({names: ['circle_artifacts.yml', CANONICAL_CONFIG]})
+  await handle(webhook(PAYLOAD), ENV, {fetchFn})
+  assert.ok(seen.some((r) => r.url.includes(`/contents/${CONFIG_DIR}/${CANONICAL_CONFIG}`)))
+  assert.ok(!seen.some((r) => r.url.includes('circle_artifacts.yml')))
 })

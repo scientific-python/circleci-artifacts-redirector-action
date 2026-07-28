@@ -100,8 +100,12 @@ Deploy: `npx wrangler deploy`. Secrets: `APP_ID`, `PRIVATE_KEY`,
 - Token (50 min), config (10 min) and posted-status dedupe (5 min) are cached in
   an isolate-level `Map`. All best-effort: a cold isolate just refetches, and a
   duplicate can slip through. Nothing is correctness-critical.
-- Repos with no `.github/circleci-artifacts.yml` are inert, so a stale
-  installation posts nothing.
+- Repos with no config file are inert, so a stale installation posts nothing.
+- The config file is found by **listing `.github/` and matching
+  `CONFIG_NAME`** (`circle(ci)?[-_]artifacts.ya?ml`) rather than fetching one
+  fixed path: people migrate by `git mv`-ing their workflow, which is called
+  `circle_artifacts.yml` in SciPy and MNE-Python. Costs one extra API call when
+  a config exists, cached for 10 minutes.
 - Responses are the diagnostic surface: the App's Advanced → Recent Deliveries
   tab shows exactly which stage a delivery reached.
 

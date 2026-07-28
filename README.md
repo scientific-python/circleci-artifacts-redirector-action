@@ -106,6 +106,11 @@ circleci-jobs: build_docs
 job-title: Check the rendered docs here!
 ```
 
+Since migrating usually means `git mv`-ing the old workflow, the underscore
+and `circle` spellings are accepted too — `circle-artifacts.yml`,
+`circle_artifacts.yml`, `circleci_artifacts.yml`, and the `.yaml` versions of
+each all work.
+
 The config is always read from the **default branch**, so a pull request
 (including one from a fork) cannot change where the link points.
 

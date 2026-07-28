@@ -15,7 +15,12 @@
 import { normalizeConfig, parseConfig } from '../src/config.js'
 import { resolveStatus } from '../src/core.js'
 
-export const CONFIG_PATH = '.github/circleci-artifacts.yml'
+export const CONFIG_DIR = '.github'
+export const CANONICAL_CONFIG = 'circleci-artifacts.yml'
+// People migrate by `git mv`-ing their old workflow, which is variously called
+// circle_artifacts.yml (SciPy), circle-artifacts.yml, circleci_artifacts.yml…
+// so accept any of those spellings rather than making them rename the file.
+export const CONFIG_NAME = /^circle(ci)?[-_]artifacts\.ya?ml$/
 // Cloudflare reuses an isolate across many requests, so a plain Map removes
 // most of the token and config traffic without needing KV. Nothing here is
 // correctness-critical: a cold isolate simply fetches again.
@@ -115,13 +120,28 @@ export async function mintToken({appId, privateKey, installationId, fetchFn = gl
 // forked PR could point `domain` at a host it controls and have us post a
 // trusted-looking link to it.
 export async function readConfig(fetchFn, repo, token) {
-  const url = `${API}/repos/${repo.full_name}/contents/${CONFIG_PATH}?ref=${repo.default_branch}`
-  const response = await fetchFn(url, {headers: {...UA, authorization: `Bearer ${token}`}})
-  if (response.status === 404) {
+  const headers = {...UA, authorization: `Bearer ${token}`}
+  const ref = `?ref=${repo.default_branch}`
+  const listing = await fetchFn(`${API}/repos/${repo.full_name}/contents/${CONFIG_DIR}${ref}`, {headers})
+  if (listing.status === 404) {
+    return null   // no .github directory at all
+  }
+  if (!listing.ok) {
+    throw new Error(`Could not list ${CONFIG_DIR}: ${listing.status}`)
+  }
+  const entries = await listing.json()
+  if (!Array.isArray(entries)) {
     return null
   }
+  const files = entries.filter((entry) => entry.type === 'file' && CONFIG_NAME.test(entry.name))
+  // Prefer the documented spelling when a repo somehow has several
+  const file = files.find((entry) => entry.name === CANONICAL_CONFIG) ?? files[0]
+  if (file === undefined) {
+    return null
+  }
+  const response = await fetchFn(`${API}/repos/${repo.full_name}/contents/${file.path}${ref}`, {headers})
   if (!response.ok) {
-    throw new Error(`Could not read ${CONFIG_PATH}: ${response.status}`)
+    throw new Error(`Could not read ${file.path}: ${response.status}`)
   }
   const {content} = await response.json()
   return parseConfig(atob(content.replace(/\s/g, '')))
@@ -157,7 +177,7 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
     `config:${repo.full_name}@${repo.default_branch}`, CONFIG_TTL_MS,
     () => readConfig(fetchFn, repo, token), now)
   if (raw === null) {
-    return new Response(`ignored: no ${CONFIG_PATH}`, {status: 200})
+    return new Response(`ignored: no ${CONFIG_DIR}/${CANONICAL_CONFIG}`, {status: 200})
   }
   // The app never posts a pending status: it would double the webhook traffic
   // it generates for no benefit the final status does not already provide
