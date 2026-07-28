@@ -71,7 +71,7 @@ test('legacy CircleCI URL', async () => {
   const {requests, url, status} = await runAction({bodies: [{items: [ARTIFACT]}]})
   assert.equal(requests.length, 1)
   assert.equal(requests[0].url, 'https://circleci.com/api/v2/project/gh/scientific-python/circleci-artifacts-redirector-action/94/artifacts')
-  assert.equal(requests[0].options.headers['Circle-Token'], 'null')
+  assert.ok(!('Circle-Token' in requests[0].options.headers), 'no token header without an api-token')
   assert.equal(url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
   assert.deepEqual(status, {
     repo: 'circleci-artifacts-redirector-action',
