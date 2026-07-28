@@ -111,13 +111,37 @@ test('workflow URL falls back to the first job', async () => {
   assert.equal(requests[1].url, 'https://circleci.com/api/v2/project/circleci/1/2/7/artifacts')
 })
 
-test('no artifacts links to the job itself', async () => {
+test('no artifacts links to the job itself and fails', async () => {
   const {url, status} = await runAction({
     inputs: {domain: 'circleci-artifacts.scientific-python.org'},
     bodies: [{items: []}],
   })
   assert.equal(url, 'https://circleci.com/gh/scientific-python/circleci-artifacts-redirector-action/94')
   assert.equal(status.target_url, url)
+  assert.equal(status.state, 'failure')
+  assert.equal(status.description, 'No artifacts found')
+})
+
+// gh-57: the status tracks the link, not the CircleCI job
+test('a failed job with artifacts still succeeds', async () => {
+  const {url, status} = await runAction({
+    payload: {state: 'failure'},
+    bodies: [{items: [ARTIFACT]}],
+  })
+  assert.equal(url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
+  assert.equal(status.state, 'success')
+  assert.equal(status.description, 'Link to doc/index.html')
+})
+
+test('a successful job without artifacts fails', async () => {
+  const {status} = await runAction({payload: {state: 'success'}, bodies: [{items: []}]})
+  assert.equal(status.state, 'failure')
+})
+
+test('a pending job stays pending', async () => {
+  const {status} = await runAction({payload: {state: 'pending'}, bodies: [{items: []}]})
+  assert.equal(status.state, 'pending')
+  assert.equal(status.description, 'Waiting for CircleCI ...')
 })
 
 test('other contexts are ignored', async () => {
