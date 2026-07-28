@@ -5,12 +5,15 @@ repos:
       - id: yamllint
         args: [--strict, -c, .yamllint.yml]
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: 'v10.4.1'
+    # Keep rev and additional_dependencies in sync with the devDependencies in
+    # package.json, otherwise this hook lints with a different ESLint than
+    # `npm run lint` and CI do. Dependabot updates package.json but not this
+    # file, so bump both when it opens an ESLint PR.
+    rev: 'v10.8.0'
     hooks:
     -   id: eslint
         files: ^index(\.test)?\.js$
         additional_dependencies:
-        - globals@17.6.0
-        - eslint@10.4.1
+        - globals@17.8.0
+        - eslint@10.8.0
         - '@eslint/js@10.0.1'
-        - '@eslint/eslintrc@3.3.5'
