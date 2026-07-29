@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { run } from './index.js'
+import { debug, run } from './index.js'
 import { pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson, resolveStatus } from './src/core.js'
 import { normalizeConfig } from './src/config.js'
 
@@ -300,6 +300,70 @@ test('resolveStatus works without a logger', async () => {
     fetchFn,
   })
   assert.equal(status.url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
+})
+
+// CPU budget (see CLAUDE.md): the Worker gets 10 ms of CPU per request and the
+// artifacts payload is ~1 MB for a large docs build, so no debug message may be
+// built unless something is going to read it. A `toJSON` hook is a precise
+// tripwire for that -- JSON.stringify() cannot serialize the payload without
+// calling it -- where asserting on elapsed milliseconds would just be flaky.
+const countingArtifacts = () => {
+  const payload = {items: [ARTIFACT], serialized: 0}
+  payload.toJSON = () => { payload.serialized++; return {items: [ARTIFACT]} }
+  return payload
+}
+
+const resolveWith = (artifacts, log) => resolveStatus({
+  payload: {context: 'ci/circleci: build', state: 'success', target_url: 'https://circleci.com/gh/o/r/1'},
+  config: normalizeConfig({'artifact-path': 'doc/index.html'}),
+  fetchFn: async () => ({ok: true, status: 200, json: async () => artifacts}),
+  log,
+})
+
+test('the artifacts payload is not serialized when the log discards it', async () => {
+  const artifacts = countingArtifacts()
+  await resolveWith(artifacts, () => {})   // the Worker's logger
+  assert.equal(artifacts.serialized, 0, 'serializing costs ~2x parsing the response')
+
+  const bare = countingArtifacts()
+  await resolveWith(bare)                  // and with no logger at all
+  assert.equal(bare.serialized, 0)
+})
+
+test('a logger that resolves thunks still gets the full payload', async () => {
+  const artifacts = countingArtifacts()
+  const lines = []
+  await resolveWith(artifacts, (m) => lines.push(typeof m === 'function' ? m() : m))
+  assert.equal(artifacts.serialized, 1, 'built once, not once per line')
+  assert.ok(lines.some((line) => line.startsWith('Artifacts JSON: {')), 'debugging is unaffected')
+})
+
+test('debug() only builds an expensive message when the runner wants it', async () => {
+  const thunk = () => { calls++; return 'expensive' }
+  let calls = 0
+
+  delete process.env.RUNNER_DEBUG
+  let out = await captureStdout(async () => debug(thunk))
+  assert.equal(calls, 0, 'not built when debug logging is off')
+  assert.equal(out, '')
+
+  process.env.RUNNER_DEBUG = '1'
+  try {
+    out = await captureStdout(async () => {
+      debug(thunk)
+      debug('plain string')
+    })
+  } finally {
+    delete process.env.RUNNER_DEBUG
+  }
+  assert.equal(calls, 1)
+  assert.match(out, /::debug::expensive/)
+  assert.match(out, /::debug::plain string/)
+})
+
+test('debug() passes plain strings through whatever the runner is doing', async () => {
+  const out = await captureStdout(async () => debug('always emitted'))
+  assert.match(out, /::debug::always emitted/, 'core.debug decides, as it always did')
 })
 
 test('post-pending: false skips the pending status entirely', async () => {

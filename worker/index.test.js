@@ -365,3 +365,21 @@ test('the documented spelling wins when a repo has several', async () => {
   assert.ok(seen.some((r) => r.url.includes(`/contents/${CONFIG_DIR}/${CANONICAL_CONFIG}`)))
   assert.ok(!seen.some((r) => r.url.includes('circle_artifacts.yml')))
 })
+
+// The Worker gets 10 ms of CPU per request (see CLAUDE.md) and the artifacts
+// listing is ~1 MB for a large docs build, so a debug message nobody reads must
+// cost nothing. `toJSON` is the tripwire: JSON.stringify() cannot serialize the
+// payload without calling it. Injected through a bare response object because a
+// real Response would round-trip through text and drop the hook.
+test('a delivery never serializes the artifacts payload', async () => {
+  const artifacts = {items: [ARTIFACT], serialized: 0}
+  artifacts.toJSON = () => { artifacts.serialized++; return {items: [ARTIFACT]} }
+  const base = backend()
+  const fetchFn = async (url, options) => url.includes('/artifacts')
+    ? {ok: true, status: 200, json: async () => artifacts}
+    : base.fetchFn(url, options)
+
+  const response = await handle(webhook(PAYLOAD), ENV, {fetchFn})
+  assert.equal(response.status, 200, 'the status still posts')
+  assert.equal(artifacts.serialized, 0, 'serializing it costs ~2x parsing it')
+})
