@@ -16,6 +16,18 @@ import { pathToFileURL } from 'node:url'
 import { normalizeConfig } from './src/config.js'
 import { resolveStatus } from './src/core.js'
 
+// src/core.js passes a thunk for debug messages that are expensive to build, so
+// that a sink which throws the output away never builds them. core.debug emits
+// the ::debug:: command whether or not the runner is in debug mode, so resolve
+// the thunk only when someone will actually read the result.
+export function debug(message) {
+  if (typeof message !== 'function') {
+    core.debug(message)
+  } else if (core.isDebug()) {
+    core.debug(message())
+  }
+}
+
 // The context/fetch/octokit arguments exist so that tests can inject fakes;
 // in production the defaults are always used.
 export async function run({context = github.context, fetchFn = globalThis.fetch, getOctokit = github.getOctokit} = {}) {
@@ -37,7 +49,7 @@ export async function run({context = github.context, fetchFn = globalThis.fetch,
       core.debug('Successfully read CircleCI API token')
     }
 
-    const status = await resolveStatus({payload, config, fetchFn, log: core.debug})
+    const status = await resolveStatus({payload, config, fetchFn, log: debug})
     if (status === null) {
       return
     }

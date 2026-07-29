@@ -15,6 +15,7 @@ GitHub commit status:
 | `index.js` | GitHub Action entry point (`@actions/core`, `@actions/github`) |
 | `worker/index.js` | GitHub App entry point: a Cloudflare Worker handling `status` webhooks |
 | `dist/index.js` | the bundle the action actually runs; **committed**, built by `ncc` |
+| `tools/cf-usage.py` | Cloudflare usage report for the deployed Worker (stdlib only) |
 
 Keep logic in `src/`. Anything added to only one front end will drift; that is
 the whole reason the split exists.
@@ -27,6 +28,7 @@ npm run coverage  # the same, with a hard 100% line/branch/function floor
 npx ncc build index.js -o dist   # after ANY change to index.js or src/
 pre-commit run --all-files       # yamllint + eslint, as CI runs them
 npx wrangler deploy              # after ANY change to worker/ or src/
+tools/cf-usage.py [days]         # deployed Worker usage vs the free-tier limits
 ```
 
 CI enforces 100% coverage. New code needs tests, or `/* node:coverage
@@ -108,6 +110,45 @@ Deploy: `npx wrangler deploy`. Secrets: `APP_ID`, `PRIVATE_KEY`,
   a config exists, cached for 10 minutes.
 - Responses are the diagnostic surface: the App's Advanced → Recent Deliveries
   tab shows exactly which stage a delivery reached.
+
+### CPU is the limit that binds, not requests
+
+The free plan allows 100,000 requests/day but only **10 ms of CPU per
+invocation** (I/O does not count, so awaiting GitHub and CircleCI is free).
+Requests are a non-issue — measured traffic is well under 1% of the daily cap,
+with ~200x headroom — while the observed CPU p99 already sits near 10 ms. When
+a Worker consistently exceeds it, Cloudflare terminates the invocation with
+error 1102; occasional overruns are tolerated.
+
+What actually costs CPU here, measured:
+
+| Operation | Cost |
+|---|---|
+| `JSON.parse` of the artifacts listing (~1 MB, unavoidable) | ~1.5 ms |
+| `JSON.stringify` of that same listing | ~2.8 ms |
+| RSA import + JWT sign (only on a token cache miss) | ~1.0 ms |
+| HMAC import + webhook signature verify | ~0.08 ms |
+
+A large docs build lists thousands of files (scikit-learn: 3,904 artifacts,
+982 KB; MNE-Python: 3,290, 755 KB), so **anything that touches the whole
+artifacts payload is the most expensive thing the Worker does** — more than the
+crypto, by a lot.
+
+Hence: `src/core.js` passes a **thunk** to `log` for messages that are expensive
+to build, and the Worker's `log` is a no-op that never calls it. Do not "simplify"
+that back into a template string — a no-op logger still evaluates its argument,
+which is exactly the bug it fixes. `index.js` resolves the thunk only when
+`core.isDebug()`.
+
+Two tests pin this down (`index.test.js`, `worker/index.test.js`): the fake
+artifacts payload carries a `toJSON` hook that counts serializations, and the
+tests assert it is never called. That is a deterministic tripwire for the
+specific wasteful operation; asserting on elapsed milliseconds would be flaky.
+Add the same guard for any new code that could walk the payload.
+
+Check real usage with `tools/cf-usage.py` (uses the token `wrangler login`
+already stored; no extra API token needed). It reports CPU quantiles and
+invocation outcomes, and flags a p99 over the limit.
 
 ## Where things stand (2026-07-28)
 

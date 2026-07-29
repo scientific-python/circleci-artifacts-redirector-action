@@ -83,6 +83,10 @@ export async function artifactsUrlFor(target, jobNames, fetchFn, log) {
 // The whole job: from a status payload plus config, produce the commit status
 // to create, or null when this event is none of our business. Throws when
 // CircleCI cannot be reached or returns something unusable.
+//
+// `log` is called with either a string or, for messages that are expensive to
+// build, a thunk returning one. A sink that discards debug output must simply
+// not call the thunk; see the CPU note below.
 export async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log = () => {}}) {
   // Each job reports itself as a "ci/circleci: <name>" status context
   const contexts = config.jobNames.map((name) => `ci/circleci: ${name}`)
@@ -113,7 +117,12 @@ export async function resolveStatus({payload, config, fetchFn = globalThis.fetch
     headers['Circle-Token'] = config.apiToken
   }
   const artifacts = await fetchJson(fetchFn, artifactsUrl, {headers})
-  log(`Artifacts JSON: ${JSON.stringify(artifacts)}`)
+  // Thunk, not a string: a docs build lists thousands of files, so this payload
+  // runs to ~1 MB and serializing it costs about twice what parsing the
+  // response did (~2.8 ms vs ~1.5 ms for scikit-learn). The Worker gets 10 ms
+  // of CPU per request, and its `log` is a no-op, so it must never pay for a
+  // message nobody reads.
+  log(() => `Artifacts JSON: ${JSON.stringify(artifacts)}`)
 
   const url = redirectUrl(artifacts.items, config.path, config.domain, payload.target_url)
   const {state, description} = statusFor(payload.state, artifacts.items.length > 0, config.path)

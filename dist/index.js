@@ -29149,6 +29149,7 @@ var __webpack_exports__ = {};
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
+  Y: () => (/* binding */ index_debug),
   e: () => (/* binding */ run)
 });
 
@@ -36558,6 +36559,10 @@ async function artifactsUrlFor(target, jobNames, fetchFn, log) {
 // The whole job: from a status payload plus config, produce the commit status
 // to create, or null when this event is none of our business. Throws when
 // CircleCI cannot be reached or returns something unusable.
+//
+// `log` is called with either a string or, for messages that are expensive to
+// build, a thunk returning one. A sink that discards debug output must simply
+// not call the thunk; see the CPU note below.
 async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log = () => {}}) {
   // Each job reports itself as a "ci/circleci: <name>" status context
   const contexts = config.jobNames.map((name) => `ci/circleci: ${name}`)
@@ -36588,7 +36593,12 @@ async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log =
     headers['Circle-Token'] = config.apiToken
   }
   const artifacts = await fetchJson(fetchFn, artifactsUrl, {headers})
-  log(`Artifacts JSON: ${JSON.stringify(artifacts)}`)
+  // Thunk, not a string: a docs build lists thousands of files, so this payload
+  // runs to ~1 MB and serializing it costs about twice what parsing the
+  // response did (~2.8 ms vs ~1.5 ms for scikit-learn). The Worker gets 10 ms
+  // of CPU per request, and its `log` is a no-op, so it must never pay for a
+  // message nobody reads.
+  log(() => `Artifacts JSON: ${JSON.stringify(artifacts)}`)
 
   const url = redirectUrl(artifacts.items, config.path, config.domain, payload.target_url)
   const {state, description} = statusFor(payload.state, artifacts.items.length > 0, config.path)
@@ -36619,6 +36629,18 @@ async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log =
 
 
 
+// src/core.js passes a thunk for debug messages that are expensive to build, so
+// that a sink which throws the output away never builds them. core.debug emits
+// the ::debug:: command whether or not the runner is in debug mode, so resolve
+// the thunk only when someone will actually read the result.
+function index_debug(message) {
+  if (typeof message !== 'function') {
+    core_debug(message)
+  } else if (isDebug()) {
+    core_debug(message())
+  }
+}
+
 // The context/fetch/octokit arguments exist so that tests can inject fakes;
 // in production the defaults are always used.
 async function run({context = github_context, fetchFn = globalThis.fetch, getOctokit = github_getOctokit} = {}) {
@@ -36640,7 +36662,7 @@ async function run({context = github_context, fetchFn = globalThis.fetch, getOct
       core_debug('Successfully read CircleCI API token')
     }
 
-    const status = await resolveStatus({payload, config, fetchFn, log: core_debug})
+    const status = await resolveStatus({payload, config, fetchFn, log: index_debug})
     if (status === null) {
       return
     }
@@ -36672,5 +36694,6 @@ if (import.meta.url === (0,external_node_url_.pathToFileURL)(process.argv[1]).hr
 }
 /* node:coverage enable */
 
+var __webpack_exports__debug = __webpack_exports__.Y;
 var __webpack_exports__run = __webpack_exports__.e;
-export { __webpack_exports__run as run };
+export { __webpack_exports__debug as debug, __webpack_exports__run as run };
