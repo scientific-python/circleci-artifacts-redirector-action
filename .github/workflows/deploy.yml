@@ -80,4 +80,7 @@ jobs:
       # Reminder for a rollback: Cloudflare is now ahead of master, and the next
       # deploy will re-ship whatever was rolled back unless git is reverted too.
       - name: Record live version
+        # Diagnostic, not part of shipping: never turn a good deploy red because
+        # the listing call was refused or the API hiccuped.
+        continue-on-error: true
         run: npx wrangler versions list
