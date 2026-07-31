@@ -122,8 +122,15 @@ environment:
 
 | Secret | What |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | dashboard → My Profile → API Tokens, **Edit Cloudflare Workers** template, plus **Account Analytics: Read** so the same token drives `tools/cf-usage.py` |
+| `CLOUDFLARE_API_TOKEN` | dashboard → My Profile → API Tokens, **Edit Cloudflare Workers** template |
 | `CLOUDFLARE_ACCOUNT_ID` | dashboard → Workers & Pages → Account ID |
+
+For local read-only work, mint a *second* token rather than reusing the deploy
+one — it can write to production. `tools/cf-usage.py` needs exactly **Account
+Analytics: Read**, provided `CLOUDFLARE_ACCOUNT_ID` is exported too; without it
+the script falls back to listing accounts, which additionally needs Account
+Settings: Read. Add **Workers Tail: Read** to that token if you also want
+`wrangler tail` to stream live deliveries.
 
 Not on every push to `master`: the Worker is production for every repo with the
 App installed, so deploying is a decision rather than a consequence of merging.

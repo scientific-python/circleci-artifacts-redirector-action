@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Report Cloudflare Workers usage for this Worker against the free-tier quota.
 
-Uses $CLOUDFLARE_API_TOKEN when set -- the same token CI deploys with, see
-.github/workflows/deploy.yml -- and otherwise the OAuth token wrangler stored at
-`wrangler login`. The stored one expires within the hour and this script cannot
-refresh it, so export the API token if you got tired of logging back in.
+Uses $CLOUDFLARE_API_TOKEN when set, otherwise the OAuth token wrangler stored
+at `wrangler login`. The stored one expires within the hour and this script
+cannot refresh it, so export the API token if you got tired of logging back in.
+A token needs only **Account Analytics: Read** if $CLOUDFLARE_ACCOUNT_ID is also
+exported, and additionally Account Settings: Read if it is not.
 
 Usage: ./cf-usage.py [days]  (default 7)
 """
@@ -92,7 +93,12 @@ def main():
 
     wrangler = Path(__file__).resolve().parent.parent / 'wrangler.toml'
     script = re.search(r'^name\s*=\s*"([^"]+)"', wrangler.read_text(), re.M).group(1)
-    account = api('https://api.cloudflare.com/client/v4/accounts', tok)['result'][0]['id']
+    # Looking the account up costs an extra permission -- listing accounts needs
+    # Account Settings: Read, on top of the Account Analytics: Read the report
+    # itself needs. Take the ID from the environment when it is there so a token
+    # minted just for this can carry the single analytics permission.
+    account = os.environ.get('CLOUDFLARE_ACCOUNT_ID') or api(
+        'https://api.cloudflare.com/client/v4/accounts', tok)['result'][0]['id']
 
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
