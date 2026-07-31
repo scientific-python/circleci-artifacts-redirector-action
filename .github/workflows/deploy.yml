@@ -1,12 +1,16 @@
-# Deploy the GitHub App front end (worker/index.js) to Cloudflare Workers.
+# Deploy the GitHub App front end (worker/index.js) to Cloudflare Workers, or
+# roll back to a version already on Cloudflare.
 #
 # Deliberately NOT on every push to master: the Worker is production for every
 # repo that has the App installed, so a deploy is a decision, not a side effect
 # of merging. Releases are that decision; workflow_dispatch covers the case
 # where a Worker-only fix should not wait for the next action release.
 #
+# Rollback lives here rather than in its own workflow so that it shares this
+# one's concurrency group: a rollback must never race the deploy it is undoing.
+#
 # The Worker's own secrets (APP_ID, PRIVATE_KEY, WEBHOOK_SECRET) live on the
-# Worker and survive a deploy, so CI never sees them -- see CLAUDE.md.
+# Worker and survive both operations, so CI never sees them -- see CLAUDE.md.
 name: Deploy
 concurrency:
   group: ${{ github.workflow }}
@@ -16,6 +20,14 @@ on:  # yamllint disable-line rule:truthy
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      rollback_to:
+        description: >-
+          Version ID to roll back to. Leave empty to deploy this ref. IDs are
+          listed at the end of every run of this workflow.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -29,6 +41,9 @@ jobs:
     # Environments tab; add required reviewers there to gate it on approval.
     environment: production
     if: github.repository == 'scientific-python/circleci-artifacts-redirector-action'
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -37,11 +52,32 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: npm ci
+
       # The Worker shares src/ with the action, so a bad change here is a
       # production outage rather than a red check. workflow_dispatch can run
       # from any ref, which is exactly the ref least likely to have been tested.
-      - run: npm test
-      - run: npx wrangler deploy
+      - name: Test
+        if: inputs.rollback_to == ''
+        run: npm test
+      - name: Deploy
+        if: inputs.rollback_to == ''
+        run: npx wrangler deploy
+
+      # A rollback re-serves bytes Cloudflare already has, so there is nothing
+      # to build or test here -- which is the point, it works when the tree is
+      # broken. The ID goes through the environment rather than straight into
+      # the script, so it cannot be read as shell.
+      - name: Roll back
+        if: inputs.rollback_to != ''
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ inputs.rollback_to }}
+        run: |
+          npx wrangler rollback "$VERSION" --yes \
+            --message "Rolled back by ${{ github.actor }} (run ${{ github.run_id }})"
+
+      # Always: leaves the ID of what is now live in the log, so the next
+      # rollback has something to aim at without a working local wrangler login.
+      # Reminder for a rollback: Cloudflare is now ahead of master, and the next
+      # deploy will re-ship whatever was rolled back unless git is reverted too.
+      - name: Record live version
+        run: npx wrangler versions list
