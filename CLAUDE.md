@@ -151,31 +151,50 @@ with ~200x headroom — while the observed CPU p99 already sits near 10 ms. When
 a Worker consistently exceeds it, Cloudflare terminates the invocation with
 error 1102; occasional overruns are tolerated.
 
-What actually costs CPU here, measured:
+What actually costs CPU here, measured on a scikit-learn-sized listing:
 
 | Operation | Cost |
 |---|---|
-| `JSON.parse` of the artifacts listing (~1 MB, unavoidable) | ~1.5 ms |
-| `JSON.stringify` of that same listing | ~2.8 ms |
+| `JSON.stringify` of the artifacts listing (~1 MB) | ~2.8 ms |
+| `JSON.parse` of that same listing | ~2.2 ms |
 | RSA import + JWT sign (only on a token cache miss) | ~1.0 ms |
+| **streaming scan for the first artifact URL** | **~0.08 ms** |
 | HMAC import + webhook signature verify | ~0.08 ms |
 
 A large docs build lists thousands of files (scikit-learn: 3,904 artifacts,
 982 KB; MNE-Python: 3,290, 755 KB), so **anything that touches the whole
 artifacts payload is the most expensive thing the Worker does** — more than the
-crypto, by a lot.
+crypto, by a lot. Both halves of that have now been removed:
 
-Hence: `src/core.js` passes a **thunk** to `log` for messages that are expensive
-to build, and the Worker's `log` is a no-op that never calls it. Do not "simplify"
-that back into a template string — a no-op logger still evaluates its argument,
-which is exactly the bug it fixes. `index.js` resolves the thunk only when
-`core.isDebug()`.
+- **Never serialize it.** `src/core.js` passes a **thunk** to `log` for messages
+  that are expensive to build, and the Worker's `log` is a no-op that never
+  calls it. Do not "simplify" a thunk back into a template string — a no-op
+  logger still evaluates its argument, which is exactly the bug it fixes.
+  `index.js` resolves the thunk only when `core.isDebug()`. Nothing passes a
+  thunk today (the message that did is gone, below), but the contract holds and
+  the next expensive message must use it.
+- **Never parse it.** Only two facts about the listing matter: whether the job
+  uploaded anything, and the URL of one artifact — they all share the job
+  segment the redirect needs. `firstArtifactUrl` scans the response bytes as
+  they arrive, stops at the first `"url"`, and cancels the rest of the download,
+  turning ~2.2 ms into ~0.08 ms and skipping most of the transfer as well. The
+  regex cannot be fooled by a path containing the text `"url":`, because an
+  unescaped `"` only appears as JSON syntax, never inside a string value. If the
+  scan finds nothing before the stream ends it parses the (then tiny, or
+  unexpected) body properly, so a malformed response still throws instead of
+  quietly reading as "no artifacts".
 
-Two tests pin this down (`index.test.js`, `worker/index.test.js`): the fake
-artifacts payload carries a `toJSON` hook that counts serializations, and the
-tests assert it is never called. That is a deterministic tripwire for the
-specific wasteful operation; asserting on elapsed milliseconds would be flaky.
-Add the same guard for any new code that could walk the payload.
+The cost of that second one is debuggability: there is no longer a full
+`Artifacts JSON: …` dump in the action's debug log, because the payload is never
+assembled. `First artifact: <url>` replaces it.
+
+Four tests pin this down (`index.test.js`, `worker/index.test.js`). The fake
+artifacts payload carries a `toJSON` hook that counts serializations and the
+tests assert it is never called; a second fixture serves the listing as a real
+chunked `ReadableStream` and asserts the scan pulls at most 2 of ~15 chunks.
+Both are deterministic tripwires for the specific wasteful operation, where
+asserting on elapsed milliseconds would be flaky. Add the same guard for any new
+code that could walk the payload.
 
 Check real usage with `tools/cf-usage.py` (`$CLOUDFLARE_API_TOKEN` if exported,
 else the token `wrangler login` stored). It reports CPU quantiles and invocation
