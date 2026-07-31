@@ -101,7 +101,11 @@ CI never needs them and must never be given them.
 - `PRIVATE_KEY` must be **PKCS#8** (`openssl pkcs8 -topk8 -nocrypt …`); Web
   Crypto cannot import the PKCS#1 file GitHub gives you.
 - Upload `WEBHOOK_SECRET` with `printf '%s'`, never `< file` — a trailing
-  newline makes every delivery `401`.
+  newline makes every delivery `401`. The same trap caught
+  `CLOUDFLARE_API_TOKEN` as a repo secret, where a pasted newline became an
+  invalid `Authorization` header. **Every credential in this project has to be
+  stored with no trailing newline**, and nothing in any UI shows you one; the
+  deploy workflow now rejects whitespace up front for the two it can see.
 - Token (50 min), config (10 min) and posted-status dedupe (5 min) are cached in
   an isolate-level `Map`. All best-effort: a cold isolate just refetches, and a
   duplicate can slip through. Nothing is correctness-critical.

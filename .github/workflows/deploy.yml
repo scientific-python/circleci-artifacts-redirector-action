@@ -53,7 +53,8 @@ jobs:
       - name: Check credentials
         run: |
           for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
-            if [ -z "${!name}" ]; then
+            value="${!name}"
+            if [ -z "$value" ]; then
               echo "::error::Repository secret $name is missing or empty." \
                 "Settings -> Secrets and variables -> Actions: check the name" \
                 "is spelled exactly $name, that it is under Secrets rather than" \
@@ -61,6 +62,18 @@ jobs:
                 "environment."
               exit 1
             fi
+            # A pasted-in trailing newline is invisible in the UI and survives
+            # into the Authorization header, where wrangler reports it as an
+            # invalid header value rather than as a bad secret. Same trap as
+            # WEBHOOK_SECRET in CLAUDE.md; it has now cost time twice.
+            case "$value" in
+              *[[:space:]]*)
+                echo "::error::Repository secret $name contains whitespace," \
+                  "most likely a trailing newline from pasting it in." \
+                  "Re-enter it with no leading or trailing whitespace."
+                exit 1
+                ;;
+            esac
           done
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
