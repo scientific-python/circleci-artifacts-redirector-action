@@ -17,6 +17,11 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # npm code gets bundled into dist/ and shipped to every consumer of the
+    # action, so never pick up a release until it has survived two weeks in
+    # the wild -- most compromised packages are yanked within days.
+    cooldown:
+      default-days: 14
     groups:
       npm:
         patterns:

@@ -8,11 +8,24 @@ jobs:
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # Names can be found with gh api /repos/mne-tools/mne-python/pulls/12998 -q .user.login for example
     if: (github.event.pull_request.user.login == 'dependabot[bot]' || github.event.pull_request.user.login == 'pre-commit-ci[bot]' || github.event.pull_request.user.login == 'github-actions[bot]') && github.repository == 'scientific-python/circleci-artifacts-redirector-action'
     steps:
-      - name: Enable auto-merge for bot PRs
-        run: gh pr merge --auto --squash "$PR_URL"
+      # dist/ is the code every consumer of the action actually runs, so a bot
+      # PR that changes it (a dependency bump that autofix.ci re-bundles) must
+      # get human eyes before it merges. This runs on `synchronize` too, so
+      # when autofix.ci pushes a rebuilt dist/ to a PR whose auto-merge was
+      # already enabled, the disable below undoes it before the merge can fire.
+      - name: Enable auto-merge for bot PRs, unless dist/ changed
+        run: |
+          files=$(gh pr diff --name-only "$PR_URL")
+          if printf '%s\n' "$files" | grep -q '^dist/'; then
+            # Errors if auto-merge was never enabled; that outcome is fine
+            gh pr merge --disable-auto "$PR_URL" || true
+          else
+            gh pr merge --auto --squash "$PR_URL"
+          fi
         env:
           PR_URL: ${{github.event.pull_request.html_url}}
           GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
