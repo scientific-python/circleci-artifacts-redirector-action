@@ -142,6 +142,28 @@ The token from `wrangler login` is a *different* credential, expires about an
 hour after issue, and this repo's tooling cannot refresh it — hence the API
 token above, which does not expire.
 
+### Rolling back a bad deploy
+
+**Roll back first, revert git after.** They are not alternatives:
+
+1. Run the Deploy workflow with a **`rollback_to`** version ID. Cloudflare
+   re-serves a version it already has, so this needs no build, no tests and no
+   working tree — it is the one thing that still works when `master` is broken.
+   Version IDs are printed at the end of every run of the workflow.
+2. *Then* `git revert` and merge. **Cloudflare is now ahead of `master`, and the
+   next deploy silently re-ships whatever you rolled back.** This step is what
+   reconciles them, and skipping it is how the same outage happens twice.
+
+`git revert` + merge + `workflow_dispatch` on its own is a full PR and CI cycle
+to fix an outage, and it cannot help at all if the problem is that `master` does
+not build. Use it as step 2, never as step 1.
+
+Rollback is a no-op risk here: the restriction in Cloudflare's docs is about
+Durable Objects, R2, KV and queues changing between versions, and this Worker
+has no bindings at all (`wrangler deploy --dry-run` reports "No bindings
+found"). Secrets are not touched. Only recent versions are retained — the docs
+say the last 100, `wrangler versions list` shows the last 10.
+
 ### CPU is the limit that binds, not requests
 
 The free plan allows 100,000 requests/day but only **10 ms of CPU per
