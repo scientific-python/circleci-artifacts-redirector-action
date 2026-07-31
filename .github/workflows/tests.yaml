@@ -32,3 +32,35 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./lcov.info
           flags: github-actions
+
+  # dist/ is what action consumers actually run. autofix.ci rebuilds it on
+  # PRs, but nothing guards a direct push (or an autofix outage), and a stale
+  # bundle on master ships silently to everyone on @master. On PRs a red check
+  # is enough; on master pushes nobody is watching, so open an issue.
+  check-dist:
+    name: dist is up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: npm run package
+      - run: git diff --exit-code -- dist/
+      - name: Open an issue so the stale bundle does not ship unnoticed
+        if: failure() && github.event_name == 'push'
+        uses: ./.github/actions/report-issue
+        with:
+          title: dist/ on master is stale
+          body: >-
+            `dist/index.js` on master no longer matches what `npm run package`
+            builds from `index.js` + `src/`, so consumers of the action are
+            running stale code. Rebuild and commit it:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

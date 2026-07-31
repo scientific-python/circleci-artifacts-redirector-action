@@ -7,7 +7,11 @@ cannot refresh it, so export the API token if you got tired of logging back in.
 A token needs only **Account Analytics: Read** if $CLOUDFLARE_ACCOUNT_ID is also
 exported, and additionally Account Settings: Read if it is not.
 
-Usage: ./cf-usage.py [days]  (default 7)
+Usage: ./cf-usage.py [days] [--check]  (default 7 days)
+
+--check exits non-zero when something needs attention -- CPU p99 over the
+free-tier limit, non-success invocation outcomes, or a peak day past half the
+request quota -- so CI can turn the report into an issue.
 """
 import json
 import os
@@ -88,7 +92,9 @@ query($tag:string!, $start:Time!, $end:Time!, $script:string!) {
 
 
 def main():
-    days = int(sys.argv[1]) if len(sys.argv) > 1 else 7
+    args = [arg for arg in sys.argv[1:] if arg != '--check']
+    check = len(args) < len(sys.argv) - 1
+    days = int(args[0]) if args else 7
     tok = token()
 
     wrangler = Path(__file__).resolve().parent.parent / 'wrangler.toml'
@@ -140,12 +146,26 @@ def main():
     print('invocation outcomes: ' + (', '.join(f'{k}={v}' for k, v in bad.items())
                                      if bad else 'all success'))
 
+    problems = []
+    if bad:
+        problems.append(
+            'non-success invocation outcomes: '
+            + ', '.join(f'{k}={v}' for k, v in bad.items()))
+    if peak > DAILY_FREE_REQUESTS / 2:
+        problems.append(
+            f'peak day used {100 * peak / DAILY_FREE_REQUESTS:.0f}% of the '
+            f'{DAILY_FREE_REQUESTS:,} req/day quota')
     # Requests are not the binding constraint at this scale; CPU per invocation is.
     worst = max(row['quantiles']['cpuTimeP99'] for row in rows)
     if worst > FREE_CPU_LIMIT_US:
-        print(f'NOTE: peak cpu p99 {worst / 1000:.1f}ms exceeds the free '
-              f'{FREE_CPU_LIMIT_US / 1000:.0f}ms/invocation limit; Cloudflare tolerates '
-              f'infrequent overruns but kills consistent ones (error 1102)')
+        problems.append(
+            f'peak cpu p99 {worst / 1000:.1f}ms exceeds the free '
+            f'{FREE_CPU_LIMIT_US / 1000:.0f}ms/invocation limit; Cloudflare tolerates '
+            f'infrequent overruns but kills consistent ones (error 1102)')
+    for problem in problems:
+        print(f'NOTE: {problem}')
+    if check and problems:
+        sys.exit('--check: the NOTEs above need attention')
 
 
 main()

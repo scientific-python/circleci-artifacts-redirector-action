@@ -39,7 +39,16 @@ disable */` with a reason (see the entry-point guard in `index.js`).
 - **No semicolons, single quotes**, `eqeqeq` with `{null: 'ignore'}` — enforced
   by `eslint.config.mjs`, all autofixable with `npx eslint . --fix`.
 - **Rebuild `dist/`** in the same commit as any `index.js`/`src/` change, or
-  the action ships stale code. autofix.ci also does this on PRs.
+  the action ships stale code. autofix.ci also does this on PRs, and the
+  `check-dist` job in `tests.yaml` verifies it — on a `master` push a failure
+  opens an issue, because nobody watches post-merge CI.
+- **Bot PRs that touch `dist/` are never auto-merged.** `dist/` is what every
+  consumer of the action executes, so a dependency bump that autofix.ci
+  re-bundles must get human review — otherwise a compromised npm release would
+  flow to consumers' CI with no human in the loop. `automerge.yml` enforces it
+  (including *disabling* auto-merge when autofix pushes a rebuilt `dist/` to a
+  PR it already approved), and dependabot has a 14-day `cooldown` on npm so a
+  poisoned release is likely yanked before we ever see it.
 - **`.pre-commit-config.yaml` pins ESLint separately from `package.json`** and
   dependabot only updates the latter. Bump both together.
 - Style-only commits go in `.git-blame-ignore-revs`.
@@ -110,6 +119,12 @@ CI never needs them and must never be given them.
   an isolate-level `Map`. All best-effort: a cold isolate just refetches, and a
   duplicate can slip through. Nothing is correctness-critical.
 - Repos with no config file are inert, so a stale installation posts nothing.
+- **A failed delivery is lost — accepted.** GitHub never retries a webhook
+  delivery on its own, so when the Worker 500s on a transient CircleCI/GitHub
+  blip, that one status is never posted. A build emits several status events,
+  so the exposure is small; the "fix" (a cron job calling the App's redeliver
+  API) would hand App credentials to CI, which we deliberately never do. Manual
+  redelivery from Recent Deliveries covers the rare case that matters.
 - The config file is found by **listing `.github/` and matching
   `CONFIG_NAME`** (`circle(ci)?[-_]artifacts.ya?ml`) rather than fetching one
   fixed path: people migrate by `git mv`-ing their workflow, which is called
@@ -121,13 +136,12 @@ CI never needs them and must never be given them.
 ### Deploying from CI
 
 `.github/workflows/deploy.yml` runs `wrangler deploy` on a published release or
-a manual `workflow_dispatch`. Two repo secrets, both scoped to the `production`
-environment:
+a manual `workflow_dispatch`. Two repo secrets:
 
 | Secret | What |
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | dashboard → My Profile → API Tokens, **Edit Cloudflare Workers** template |
-| `CLOUDFLARE_ACCOUNT_ID` | dashboard → Workers & Pages → Account ID |
+| `CLOUDFLARE_ACCOUNT_ID` | dashboard → Workers & Pages → Account ID; an identifier rather than a credential, and also used by the weekly usage check |
 
 For local read-only work, mint a *second* token rather than reusing the deploy
 one — it can write to production. `tools/cf-usage.py` needs exactly **Account
@@ -224,7 +238,13 @@ code that could walk the payload.
 
 Check real usage with `tools/cf-usage.py` (`$CLOUDFLARE_API_TOKEN` if exported,
 else the token `wrangler login` stored). It reports CPU quantiles and invocation
-outcomes, and flags a p99 over the limit.
+outcomes, and flags a p99 over the limit. `--check` exits non-zero on anything
+worth a look; `.github/workflows/usage.yml` runs that weekly and opens (or
+comments on) an issue on failure, so the limit check does not depend on anyone
+remembering to run it. It shares the `CLOUDFLARE_ACCOUNT_ID` repo secret with
+deploy but needs its own `CLOUDFLARE_ANALYTICS_TOKEN` — a repo secret with
+Account Analytics: Read **only**, never the deploy token, which can write to
+production.
 
 ## Where things stand (2026-07-28)
 

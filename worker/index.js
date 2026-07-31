@@ -220,7 +220,11 @@ export default {
       return await handle(request, env)
     } catch (error) {
       // A 500 tells GitHub the delivery failed, so it shows up in the App's
-      // "Recent Deliveries" tab rather than vanishing
+      // "Recent Deliveries" tab rather than vanishing. GitHub never retries a
+      // failed delivery on its own, so a transient CircleCI or GitHub blip
+      // means this one status is simply never posted -- accepted: a build
+      // emits several status events, and the fix (a cron redelivering via the
+      // App API) would put App credentials in CI. See CLAUDE.md.
       return new Response(String(error), {status: 500})
     }
   },
