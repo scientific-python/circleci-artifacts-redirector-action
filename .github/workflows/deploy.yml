@@ -45,6 +45,24 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
+      # First, before spending a checkout and an install on it. A missing or
+      # misnamed secret otherwise surfaces as wrangler telling you to set
+      # CLOUDFLARE_API_TOKEN -- which the workflow plainly already does, sending
+      # you to look at the workflow instead of at the repo's secrets, where a
+      # typo in the name reads as empty and nothing says so.
+      - name: Check credentials
+        run: |
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret $name is missing or empty." \
+                "Settings -> Secrets and variables -> Actions: check the name" \
+                "is spelled exactly $name, that it is under Secrets rather than" \
+                "Variables, and that it is on this repo or its production" \
+                "environment."
+              exit 1
+            fi
+          done
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           persist-credentials: false
