@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Report Cloudflare Workers usage for this Worker against the free-tier quota.
 
-Reads the OAuth token wrangler already stored, so it needs no extra API token:
-`wrangler login` is the only setup. Usage: ./cf-usage.py [days]  (default 7)
+Uses $CLOUDFLARE_API_TOKEN when set, otherwise the OAuth token wrangler stored
+at `wrangler login`. The stored one expires within the hour and this script
+cannot refresh it, so export the API token if you got tired of logging back in.
+A token needs only **Account Analytics: Read** if $CLOUDFLARE_ACCOUNT_ID is also
+exported, and additionally Account Settings: Read if it is not.
+
+Usage: ./cf-usage.py [days]  (default 7)
 """
 import json
+import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,6 +25,8 @@ CONFIG = Path('~/.config/.wrangler/config/default.toml').expanduser()
 
 
 def token():
+    if os.environ.get('CLOUDFLARE_API_TOKEN'):
+        return os.environ['CLOUDFLARE_API_TOKEN']
     if not CONFIG.exists():
         sys.exit(f'{CONFIG} does not exist; run `npx wrangler login`')
     m = re.search(r'oauth_token\s*=\s*"([^"]+)"', CONFIG.read_text())
@@ -29,8 +38,20 @@ def token():
 def api(url, tok, body=None):
     headers = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}
     req = urllib.request.Request(url, body, headers)
-    with urllib.request.urlopen(req) as fid:
-        return json.load(fid)
+    try:
+        with urllib.request.urlopen(req) as fid:
+            return json.load(fid)
+    except urllib.error.HTTPError as exc:
+        # 400 is a malformed token, 401/403 an expired or under-scoped one. A
+        # traceback here reads as a bug in this script, but the usual cause is
+        # simply that wrangler's stored token aged out an hour after `login`.
+        if exc.code not in (400, 401, 403):
+            raise
+        sys.exit(
+            f'Cloudflare returned {exc.code} for {url}.\n'
+            'The token is invalid, expired, or lacks Account Analytics: Read. '
+            'Either run `npx wrangler login` again, or export CLOUDFLARE_API_TOKEN.'
+        )
 
 
 def gql(tok, query, variables):
@@ -72,7 +93,12 @@ def main():
 
     wrangler = Path(__file__).resolve().parent.parent / 'wrangler.toml'
     script = re.search(r'^name\s*=\s*"([^"]+)"', wrangler.read_text(), re.M).group(1)
-    account = api('https://api.cloudflare.com/client/v4/accounts', tok)['result'][0]['id']
+    # Looking the account up costs an extra permission -- listing accounts needs
+    # Account Settings: Read, on top of the Account Analytics: Read the report
+    # itself needs. Take the ID from the environment when it is there so a token
+    # minted just for this can carry the single analytics permission.
+    account = os.environ.get('CLOUDFLARE_ACCOUNT_ID') or api(
+        'https://api.cloudflare.com/client/v4/accounts', tok)['result'][0]['id']
 
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)

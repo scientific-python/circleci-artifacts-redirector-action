@@ -1,6 +1,9 @@
 # comment this out distribution branches
 node_modules/
 
+# wrangler's local build/state directory
+.wrangler/
+
 # Editors
 .vscode
 .idea/

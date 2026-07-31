@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<!--
+  Logo for the "CircleCI Artifacts Redirector" GitHub App.
+
+  Original artwork, so there is nothing to attribute; released under the
+  repository's licence along with everything else here.
+
+  Settings -> the App -> Display information:
+    Logo                    a PNG export of this file (1024x1024)
+    Badge background color  #0b3d38
+
+  Export with:  inkscape assets/icon.svg -o icon.png -w 1024 -h 1024
+
+  Design notes, in case this is ever redrawn:
+
+  - Full bleed, no rounded corners, no transparency anywhere. GitHub composites
+    a checks-list avatar onto a *white* backdrop and applies its own rounding,
+    so any transparent pixel shows up as white. Two earlier versions learned
+    this the hard way: a teal tile with rounded corners showed white at the
+    corners as a light fringe, and a bare glyph on transparency showed up as a
+    white plate. Filling every pixel leaves nothing for the backdrop to show
+    through, and GitHub's own rounding still makes the corners look soft.
+    (Alpha *is* preserved on upload -- the avatar comes back as RGBA -- it just
+    is not what you want here.)
+
+  - The arrow is white because the tile behind it is opaque teal, which carries
+    the contrast on both the light and the dark theme. Do not restyle it as a
+    coloured glyph on transparency; see above.
+
+  - It must survive ~20 px: GitHub shows it beside every check on a PR. A
+    signpost, a browser window and a document were all tried and all turned to
+    mush at that size; only a single bold glyph holds up.
+
+  - It must not be a checkmark. The original icon was, which restated whatever
+    the red/green status circle beside it already said, and blended in with the
+    other CI icons in the list.
+-->
+<rect width="512" height="512" fill="#0f9b8e"/>
+<g fill="none" stroke="#fff" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M118 388 v-104 a76 76 0 0 1 76 -76 h170"/>
+  <path d="M296 132 l92 76 -92 76"/>
+</g>
+</svg>

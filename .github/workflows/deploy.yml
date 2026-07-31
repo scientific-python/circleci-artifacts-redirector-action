@@ -1,0 +1,47 @@
+# Deploy the GitHub App front end (worker/index.js) to Cloudflare Workers.
+#
+# Deliberately NOT on every push to master: the Worker is production for every
+# repo that has the App installed, so a deploy is a decision, not a side effect
+# of merging. Releases are that decision; workflow_dispatch covers the case
+# where a Worker-only fix should not wait for the next action release.
+#
+# The Worker's own secrets (APP_ID, PRIVATE_KEY, WEBHOOK_SECRET) live on the
+# Worker and survive a deploy, so CI never sees them -- see CLAUDE.md.
+name: Deploy
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false  # never abandon a half-finished deploy
+
+on:  # yamllint disable-line rule:truthy
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy the Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Scopes CLOUDFLARE_* to this job and records the deploy under the repo's
+    # Environments tab; add required reviewers there to gate it on approval.
+    environment: production
+    if: github.repository == 'scientific-python/circleci-artifacts-redirector-action'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      # The Worker shares src/ with the action, so a bad change here is a
+      # production outage rather than a red check. workflow_dispatch can run
+      # from any ref, which is exactly the ref least likely to have been tested.
+      - run: npm test
+      - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
