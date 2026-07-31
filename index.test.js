@@ -50,9 +50,15 @@ async function runAction({inputs = {}, payload = {}, bodies = [], fetchError, ht
     },
     repo: {owner: 'scientific-python', repo: 'circleci-artifacts-redirector-action'},
   }
-  await run({context, fetchFn, getOctokit})
+  // Capture the workflow commands instead of letting them reach the real
+  // stdout. The error-path tests make run() call core.setFailed(), which emits
+  // `::error::<message>`; on a runner that is parsed out of the step's output
+  // and posted as a failure annotation, so a green CI run grew three red
+  // annotations reading "kaboom" and friends. Returned so tests can assert on
+  // it, which several do.
+  const out = await captureStdout(() => run({context, fetchFn, getOctokit}))
   const url = fs.readFileSync(OUTPUT_FILE, 'utf8').split(os.EOL)[1]
-  return {requests, url, status}
+  return {requests, url, status, out}
 }
 
 // Collect everything written to stdout (the ::debug::/::error:: workflow
@@ -176,27 +182,30 @@ test('other contexts are ignored', async () => {
 })
 
 test('an empty workflow fails the job', async () => {
-  const {status} = await runAction({
+  const {status, out} = await runAction({
     payload: {target_url: 'https://app.circleci.com/workflow/wf-123'},
     bodies: [{items: []}],
   })
   assert.equal(status, null)
   assert.equal(process.exitCode, 1)  // core.setFailed()
+  assert.match(out, /::error::No jobs returned/, 'captured, not left for the runner to annotate')
   process.exitCode = 0
 })
 
 test('a bad response fails the job', async () => {
-  const {status} = await runAction({bodies: [undefined]})  // json() -> undefined
+  const {status, out} = await runAction({bodies: [undefined]})  // json() -> undefined
   assert.equal(status, null)
   assert.equal(process.exitCode, 1)  // core.setFailed()
   process.exitCode = 0
+  assert.match(out, /::error::/, 'captured, not left for the runner to annotate')
 })
 
 test('a thrown non-Error fails the job', async () => {
-  const {status} = await runAction({fetchError: 'kaboom'})
+  const {status, out} = await runAction({fetchError: 'kaboom'})
   assert.equal(status, null)
   assert.equal(process.exitCode, 1)  // core.setFailed()
   process.exitCode = 0
+  assert.match(out, /::error::kaboom/, 'captured, not left for the runner to annotate')
 })
 
 // Unit tests for the pieces run() is built from
@@ -236,8 +245,7 @@ test('the api token is masked and never logged', async () => {
   process.env.RUNNER_DEBUG = '1'  // make core.debug() actually write
   let out
   try {
-    out = await captureStdout(
-      () => runAction({inputs: {'api-token': 'super-secret'}, bodies: [{items: [ARTIFACT]}]}))
+    ({out} = await runAction({inputs: {'api-token': 'super-secret'}, bodies: [{items: [ARTIFACT]}]}))
   } finally {
     delete process.env.RUNNER_DEBUG
   }
@@ -265,11 +273,8 @@ test('a status with no target_url is ignored', async () => {
 })
 
 test('an HTTP error fails the job with a useful message', async () => {
-  let result
-  const out = await captureStdout(async () => {
-    result = await runAction({httpStatus: 429, bodies: [{message: 'slow down'}]})
-  })
-  assert.equal(result.status, null)
+  const {status, out} = await runAction({httpStatus: 429, bodies: [{message: 'slow down'}]})
+  assert.equal(status, null)
   assert.equal(process.exitCode, 1)  // core.setFailed()
   process.exitCode = 0
   assert.match(out, /::error::CircleCI API returned 429 for /)
