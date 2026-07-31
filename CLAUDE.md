@@ -27,7 +27,7 @@ npm test          # eslint + node --test
 npm run coverage  # the same, with a hard 100% line/branch/function floor
 npx ncc build index.js -o dist   # after ANY change to index.js or src/
 pre-commit run --all-files       # yamllint + eslint, as CI runs them
-npx wrangler deploy              # after ANY change to worker/ or src/
+npx wrangler deploy              # manual deploy; normally CI does this, see below
 tools/cf-usage.py [days]         # deployed Worker usage vs the free-tier limits
 ```
 
@@ -92,8 +92,11 @@ Things that cost real debugging time. Do not undo these.
 
 ## The GitHub App
 
-Deploy: `npx wrangler deploy`. Secrets: `APP_ID`, `PRIVATE_KEY`,
-`WEBHOOK_SECRET` via `wrangler secret put`.
+Deploy: normally `.github/workflows/deploy.yml`, on a published release or a
+manual `workflow_dispatch`; `npx wrangler deploy` still works for emergencies.
+Worker secrets: `APP_ID`, `PRIVATE_KEY`, `WEBHOOK_SECRET` via
+`wrangler secret put` — these live **on the Worker and survive a deploy**, so
+CI never needs them and must never be given them.
 
 - `PRIVATE_KEY` must be **PKCS#8** (`openssl pkcs8 -topk8 -nocrypt …`); Web
   Crypto cannot import the PKCS#1 file GitHub gives you.
@@ -110,6 +113,27 @@ Deploy: `npx wrangler deploy`. Secrets: `APP_ID`, `PRIVATE_KEY`,
   a config exists, cached for 10 minutes.
 - Responses are the diagnostic surface: the App's Advanced → Recent Deliveries
   tab shows exactly which stage a delivery reached.
+
+### Deploying from CI
+
+`.github/workflows/deploy.yml` runs `wrangler deploy` on a published release or
+a manual `workflow_dispatch`. Two repo secrets, both scoped to the `production`
+environment:
+
+| Secret | What |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | dashboard → My Profile → API Tokens, **Edit Cloudflare Workers** template, plus **Account Analytics: Read** so the same token drives `tools/cf-usage.py` |
+| `CLOUDFLARE_ACCOUNT_ID` | dashboard → Workers & Pages → Account ID |
+
+Not on every push to `master`: the Worker is production for every repo with the
+App installed, so deploying is a decision rather than a consequence of merging.
+`workflow_dispatch` exists because Worker-only fixes should not have to wait for
+an action release — action releases run at a few per year, and a Worker fix
+(gh-126 was one) can be urgent.
+
+The token from `wrangler login` is a *different* credential, expires about an
+hour after issue, and this repo's tooling cannot refresh it — hence the API
+token above, which does not expire.
 
 ### CPU is the limit that binds, not requests
 
@@ -146,9 +170,9 @@ tests assert it is never called. That is a deterministic tripwire for the
 specific wasteful operation; asserting on elapsed milliseconds would be flaky.
 Add the same guard for any new code that could walk the payload.
 
-Check real usage with `tools/cf-usage.py` (uses the token `wrangler login`
-already stored; no extra API token needed). It reports CPU quantiles and
-invocation outcomes, and flags a p99 over the limit.
+Check real usage with `tools/cf-usage.py` (`$CLOUDFLARE_API_TOKEN` if exported,
+else the token `wrangler login` stored). It reports CPU quantiles and invocation
+outcomes, and flags a p99 over the limit.
 
 ## Where things stand (2026-07-28)
 
@@ -164,7 +188,8 @@ Next steps, roughly in order:
    Then MNE-Python and SciPy.
 2. Hand over to scientific-python: App ownership transfers preserve
    installations, and the Worker is stateless, so it is `wrangler deploy` +
-   three secrets + one webhook URL change. Stefan van der Walt (stefanv) runs
+   three Worker secrets + two repo secrets (see "Deploying from CI") + one
+   webhook URL change. Stefan van der Walt (stefanv) runs
    the org's existing Cloudflare Worker (`scientific-python/circleci-proxy`);
    he and Jarrod Millman are the org owners.
 3. Measured load for scikit-learn + MNE-Python + SciPy combined: ~8,200
