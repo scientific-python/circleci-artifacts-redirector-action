@@ -136,13 +136,12 @@ CI never needs them and must never be given them.
 ### Deploying from CI
 
 `.github/workflows/deploy.yml` runs `wrangler deploy` on a published release or
-a manual `workflow_dispatch`. Two repo secrets, both scoped to the `production`
-environment:
+a manual `workflow_dispatch`. Two repo secrets:
 
 | Secret | What |
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | dashboard → My Profile → API Tokens, **Edit Cloudflare Workers** template |
-| `CLOUDFLARE_ACCOUNT_ID` | dashboard → Workers & Pages → Account ID |
+| `CLOUDFLARE_ACCOUNT_ID` | dashboard → Workers & Pages → Account ID; an identifier rather than a credential, and also used by the weekly usage check |
 
 For local read-only work, mint a *second* token rather than reusing the deploy
 one — it can write to production. `tools/cf-usage.py` needs exactly **Account
@@ -242,10 +241,10 @@ else the token `wrangler login` stored). It reports CPU quantiles and invocation
 outcomes, and flags a p99 over the limit. `--check` exits non-zero on anything
 worth a look; `.github/workflows/usage.yml` runs that weekly and opens (or
 comments on) an issue on failure, so the limit check does not depend on anyone
-remembering to run it. That workflow needs two **repo-level** secrets:
-`CLOUDFLARE_ANALYTICS_TOKEN` (Account Analytics: Read **only**, never the
-deploy token) and `CLOUDFLARE_ACCOUNT_ID` (a second copy — the deploy one is
-scoped to the `production` environment, out of cron's reach by design).
+remembering to run it. It shares the `CLOUDFLARE_ACCOUNT_ID` repo secret with
+deploy but needs its own `CLOUDFLARE_ANALYTICS_TOKEN` — a repo secret with
+Account Analytics: Read **only**, never the deploy token, which can write to
+production.
 
 ## Where things stand (2026-07-28)
 

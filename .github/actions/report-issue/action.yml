@@ -1,0 +1,33 @@
+# Shared by the automated checks (check-dist in tests.yaml, usage.yml) whose
+# failures nobody would otherwise see: a red X on a master push or a cron run
+# notifies no one. The title doubles as the dedupe key, so a recurring failure
+# accumulates comments on one open issue instead of spamming new ones.
+#
+# Composite, so it needs a checkout first and the calling job needs
+# `issues: write`.
+name: Report an issue
+description: Open an issue with this title, or comment on the open one that has it
+inputs:
+  title:
+    description: Exact issue title, also the dedupe key
+    required: true
+  body:
+    description: Markdown body for the new issue or the follow-up comment
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        TITLE: ${{ inputs.title }}
+        BODY: ${{ inputs.body }}
+      run: |
+        existing=$(gh issue list --state open --search "\"$TITLE\" in:title" \
+          --json number --jq '.[0].number')
+        if [ -z "$existing" ]; then
+          gh issue create --title "$TITLE" --body "$BODY"
+        else
+          gh issue comment "$existing" --body "$BODY"
+        fi

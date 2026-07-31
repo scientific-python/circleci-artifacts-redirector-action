@@ -4,12 +4,11 @@
 # p99 already sits near it (see CLAUDE.md). A failed check opens an issue --
 # a red X on a cron run is something nobody sees.
 #
-# Secrets, both at *repo* level (the deploy ones live on the production
-# environment and are deliberately out of reach here):
-#   CLOUDFLARE_ANALYTICS_TOKEN  a token with ONLY Account Analytics: Read --
-#                               never the deploy token, which can write to
-#                               production
-#   CLOUDFLARE_ACCOUNT_ID       dashboard -> Workers & Pages -> Account ID
+# Secrets:
+#   CLOUDFLARE_ANALYTICS_TOKEN  a repo secret with ONLY Account Analytics:
+#                               Read -- never the deploy token, which can
+#                               write to production
+#   CLOUDFLARE_ACCOUNT_ID       the same repo secret deploy.yml uses
 name: Worker usage
 on:  # yamllint disable-line rule:truthy
   schedule:
@@ -48,8 +47,8 @@ jobs:
             value="${!var}"
             if [ -z "$value" ]; then
               echo "::error::Repository secret $secret is missing or empty." \
-                "It must be a repo-level secret (not only on the production" \
-                "environment); see the comment at the top of usage.yml."
+                "It must be visible outside the production environment; see" \
+                "the comment at the top of usage.yml."
               exit 1
             fi
             case "$value" in
@@ -71,24 +70,27 @@ jobs:
         shell: bash
         run: tools/cf-usage.py 8 --check 2>&1 | tee report.txt
 
-      - name: Open or update an issue so the failure is not just a grey X
+      # The report has to travel through a step output because the composite
+      # action below only takes literal inputs, not files from this job
+      - name: Collect the report for the issue body
+        id: report
         if: failure()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          title='Worker usage check failed'
-          report=$(cat report.txt 2>/dev/null || echo 'no report was produced; see the run log')
-          body="Weekly \`tools/cf-usage.py --check\` failed: $RUN_URL
+          {
+            echo 'body<<REPORT_EOF'
+            echo "Weekly \`tools/cf-usage.py --check\` failed: $RUN_URL"
+            echo
+            echo '```'
+            cat report.txt 2>/dev/null || echo 'no report was produced; see the run log'
+            echo '```'
+            echo 'REPORT_EOF'
+          } >> "$GITHUB_OUTPUT"
 
-          \`\`\`
-          $report
-          \`\`\`"
-          existing=$(gh issue list --state open --search "\"$title\" in:title" \
-            --json number --jq '.[0].number')
-          if [ -z "$existing" ]; then
-            gh issue create --title "$title" --body "$body"
-          else
-            gh issue comment "$existing" --body "$body"
-          fi
+      - name: Open or update an issue so the failure is not just a grey X
+        if: failure()
+        uses: ./.github/actions/report-issue
+        with:
+          title: Worker usage check failed
+          body: ${{ steps.report.outputs.body }}
