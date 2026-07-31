@@ -218,10 +218,10 @@ test('legacyArtifactsUrl', () => {
 
 test('redirectUrl', () => {
   assert.equal(
-    redirectUrl([ARTIFACT], 'doc/index.html', 'example.org', 'https://fallback'),
+    redirectUrl(ARTIFACT.url, 'doc/index.html', 'example.org', 'https://fallback'),
     'https://example.org/output/job/abc/artifacts/doc/index.html',
   )
-  assert.equal(redirectUrl([], 'doc/index.html', 'example.org', 'https://fallback'), 'https://fallback')
+  assert.equal(redirectUrl(null, 'doc/index.html', 'example.org', 'https://fallback'), 'https://fallback')
 })
 
 test('statusFor', () => {
@@ -330,12 +330,111 @@ test('the artifacts payload is not serialized when the log discards it', async (
   assert.equal(bare.serialized, 0)
 })
 
-test('a logger that resolves thunks still gets the full payload', async () => {
-  const artifacts = countingArtifacts()
+test('the chosen artifact is still named in the debug log', async () => {
   const lines = []
-  await resolveWith(artifacts, (m) => lines.push(typeof m === 'function' ? m() : m))
-  assert.equal(artifacts.serialized, 1, 'built once, not once per line')
-  assert.ok(lines.some((line) => line.startsWith('Artifacts JSON: {')), 'debugging is unaffected')
+  await resolveWith(countingArtifacts(), (m) => lines.push(typeof m === 'function' ? m() : m))
+  assert.ok(lines.includes(`First artifact: ${ARTIFACT.url}`), 'enough to explain the link')
+})
+
+// The other half of the CPU budget: the listing is never parsed in full either.
+// Serve it as a real chunked stream and count how many chunks get pulled --
+// deterministic, where asserting on elapsed milliseconds would be flaky.
+const chunkedListing = (count = 400, chunk = 4096) => {
+  const items = Array.from({length: count}, (_, i) => ({
+    path: `0/doc/page${i}.html`,
+    node_index: 0,
+    url: `https://output.circle-artifacts.com/output/job/abc/artifacts/0/doc/page${i}.html`,
+  }))
+  return chunkedBody(JSON.stringify({items, next_page_token: null}), chunk)
+}
+
+const chunkedBody = (text, chunk = 4096) => {
+  const bytes = new TextEncoder().encode(text)
+  let offset = 0
+  const state = {pulled: 0, chunks: Math.ceil(bytes.length / chunk)}
+  state.response = {
+    ok: true,
+    status: 200,
+    body: new ReadableStream({
+      pull(controller) {
+        state.pulled++
+        if (offset >= bytes.length) {
+          return controller.close()
+        }
+        controller.enqueue(bytes.slice(offset, offset + chunk))
+        offset += chunk
+      },
+    }),
+  }
+  return state
+}
+
+const resolveStream = (state, log) => resolveStatus({
+  payload: {context: 'ci/circleci: build', state: 'success', target_url: 'https://circleci.com/gh/o/r/1'},
+  config: normalizeConfig({'artifact-path': 'doc/index.html'}),
+  fetchFn: async () => state.response,
+  log,
+})
+
+test('the artifacts listing is not downloaded or parsed past the first entry', async () => {
+  const state = chunkedListing()
+  assert.ok(state.chunks >= 10, 'the fixture has to be big enough to stop early in')
+  const status = await resolveStream(state)
+  assert.equal(status.state, 'success')
+  assert.equal(status.url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
+  assert.ok(state.pulled <= 2, `stopped after ${state.pulled} of ${state.chunks} chunks`)
+})
+
+// Cancelling is only how we stop the download early, so a stream that objects
+// to being cancelled must not take the job down with it.
+test('a stream that refuses to cancel still produces the status', async () => {
+  const state = chunkedListing()
+  const inner = state.response.body
+  state.response = {
+    ok: true,
+    status: 200,
+    body: new ReadableStream({
+      async pull(controller) {
+        const {done, value} = await (state.reader ??= inner.getReader()).read()
+        return done ? controller.close() : controller.enqueue(value)
+      },
+      cancel() { throw new Error('cancel failed') },
+    }),
+  }
+  const status = await resolveStream(state)
+  assert.equal(status.url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
+})
+
+test('an empty listing still reads as no artifacts', async () => {
+  const state = chunkedBody(JSON.stringify({items: [], next_page_token: null}))
+  const status = await resolveStream(state)
+  assert.equal(status.state, 'failure')
+  assert.equal(status.description, 'No artifacts found')
+  assert.equal(status.url, 'https://circleci.com/gh/o/r/1', 'falls back to the job')
+})
+
+test('a malformed listing throws rather than reading as no artifacts', async () => {
+  await assert.rejects(() => resolveStream(chunkedBody('{"items": [truncated')), SyntaxError)
+})
+
+// A listing whose first `url` lands past the scan window must not silently come
+// back empty; the scan gives up and the plain parse takes over.
+test('an artifact past the scan window is still found', async () => {
+  const filler = 'x'.repeat(300 * 1024)
+  const state = chunkedBody(JSON.stringify({junk: filler, items: [ARTIFACT]}))
+  const status = await resolveStream(state)
+  assert.equal(status.state, 'success')
+  assert.equal(status.url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
+})
+
+// JSON escapes have to survive the shortcut: the scan lifts raw bytes out of
+// the response, so a path with an escape in it would come back mangled.
+test('an escaped character in the artifact URL survives the scan', async () => {
+  // Written out rather than JSON.stringify()d, which would not emit an escape
+  const state = chunkedBody('{"items":[{"path":"p","url":'
+    + '"https://output.circle-artifacts.com/output/job/a\\u00e9b/artifacts/0/doc/x.html"}]}')
+  const status = await resolveStream(state)
+  assert.equal(status.url, 'https://output.circle-artifacts.com/output/job/aéb/artifacts/doc/index.html')
 })
 
 test('debug() only builds an expensive message when the runner wants it', async () => {

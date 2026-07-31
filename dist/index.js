@@ -36499,13 +36499,14 @@ function legacyArtifactsUrl(target) {
 
 // Build the URL to link to: the requested artifact if anything was uploaded,
 // otherwise the CircleCI job itself (rewriting the domain only makes sense for
-// artifact URLs).
-function redirectUrl(items, path, domain, fallback) {
-  if (!items.length) {
+// artifact URLs). `first` is the URL of any one artifact, or null if the job
+// uploaded none -- every artifact of a job shares the job segment we want.
+function redirectUrl(first, path, domain, fallback) {
+  if (first == null) {
     return fallback
   }
   // e.g., https://output.circle-artifacts.com/output/job/<uuid>/artifacts/0/doc/index.html
-  const job = items[0].url.split('/output/')[1].split('/artifacts/')[0]
+  const job = first.split('/output/')[1].split('/artifacts/')[0]
   return `https://${domain}/output/${job}/artifacts/${path}`
 }
 
@@ -36522,16 +36523,80 @@ function statusFor(payloadState, hasArtifacts, path) {
   return {state: 'failure', description: 'No artifacts found'}
 }
 
-// Fetch JSON from the CircleCI API, failing loudly on a non-2xx response.
-// Without this a 404 or a rate limit surfaces as a confusing "cannot read
-// properties of undefined" from the caller.
-async function fetchJson(fetchFn, url, options) {
-  const response = await fetchFn(url, options)
+// Fail loudly on a non-2xx response. Without this a 404 or a rate limit
+// surfaces as a confusing "cannot read properties of undefined" downstream.
+async function assertOk(response, url) {
   if (!response.ok) {
     const body = await response.text().catch(() => '')
     throw new Error(`CircleCI API returned ${response.status} for ${url}: ${body.slice(0, 200)}`)
   }
+}
+
+// Fetch JSON from the CircleCI API. Used for the small responses; the artifacts
+// listing is the big one and goes through firstArtifactUrl below instead.
+async function fetchJson(fetchFn, url, options) {
+  const response = await fetchFn(url, options)
+  await assertOk(response, url)
   return response.json()
+}
+
+// Only two facts about the artifacts listing matter: whether the job uploaded
+// anything, and the URL of one entry. A large docs build lists thousands of
+// files and runs to ~1 MB, so parsing it in full to read a single string costs
+// ~2.2 ms of the Worker's 10 ms budget building objects we immediately drop --
+// the same waste gh-126 removed on the serialize side, and now the largest
+// single cost left. Scan the bytes as they arrive, stop at the first `url`, and
+// cancel the rest of the download.
+//
+// This cannot be fooled by a path that contains the text `"url":`, because an
+// unescaped `"` only ever appears as JSON syntax, never inside a string value.
+const FIRST_URL = /"url"\s*:\s*"((?:[^"\\]|\\.)*)"/
+
+// Past this much with no match the response is not the shape this optimizes
+// for, so stop rescanning a growing buffer and fall back to parsing it.
+const SCAN_LIMIT = 262144
+
+function firstUrlOf(artifacts) {
+  return artifacts.items.length ? artifacts.items[0].url : null
+}
+
+// Fetch the artifacts listing and return the URL of the first artifact, or null
+// when the job uploaded none. Throws on a non-2xx response or an unparseable
+// body, exactly as a plain fetch-and-parse would.
+async function firstArtifactUrl(fetchFn, url, options) {
+  const response = await fetchFn(url, options)
+  await assertOk(response, url)
+  if (!response.body) {
+    // Whatever we were handed has no stream to scan, so do it the plain way.
+    return firstUrlOf(await response.json())
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    for (;;) {
+      const {done, value} = await reader.read()
+      if (value) {
+        buffer += decoder.decode(value, {stream: true})
+      }
+      if (buffer.length <= SCAN_LIMIT) {
+        const match = FIRST_URL.exec(buffer)
+        if (match) {
+          // Re-parse the matched text so JSON escapes survive the shortcut
+          return JSON.parse(`"${match[1]}"`)
+        }
+      }
+      if (done) {
+        // No artifacts, or not the shape above. The body is fully buffered by
+        // now and an empty listing is tiny, so parsing costs nothing here and
+        // keeps a malformed body throwing rather than reading as "no artifacts".
+        return firstUrlOf(JSON.parse(buffer))
+      }
+    }
+  } finally {
+    // Stops the transfer when we bailed out early; harmless once it is drained
+    reader.cancel().catch(() => {})
+  }
 }
 
 // Work out the artifacts endpoint for a status target_url, which comes in two
@@ -36592,16 +36657,11 @@ async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log =
   if (config.apiToken !== '') {
     headers['Circle-Token'] = config.apiToken
   }
-  const artifacts = await fetchJson(fetchFn, artifactsUrl, {headers})
-  // Thunk, not a string: a docs build lists thousands of files, so this payload
-  // runs to ~1 MB and serializing it costs about twice what parsing the
-  // response did (~2.8 ms vs ~1.5 ms for scikit-learn). The Worker gets 10 ms
-  // of CPU per request, and its `log` is a no-op, so it must never pay for a
-  // message nobody reads.
-  log(() => `Artifacts JSON: ${JSON.stringify(artifacts)}`)
+  const first = await firstArtifactUrl(fetchFn, artifactsUrl, {headers})
+  log(`First artifact: ${first}`)
 
-  const url = redirectUrl(artifacts.items, config.path, config.domain, payload.target_url)
-  const {state, description} = statusFor(payload.state, artifacts.items.length > 0, config.path)
+  const url = redirectUrl(first, config.path, config.domain, payload.target_url)
+  const {state, description} = statusFor(payload.state, first != null, config.path)
   return {
     url,
     state,
