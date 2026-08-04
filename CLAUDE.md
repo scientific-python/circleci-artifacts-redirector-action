@@ -223,6 +223,14 @@ crypto, by a lot. Both halves of that have now been removed:
   scan finds nothing before the stream ends it parses the (then tiny, or
   unexpected) body properly, so a malformed response still throws instead of
   quietly reading as "no artifacts".
+- **Answer pending statuses before the API.** The app never posts one, so
+  `handle` returns as soon as it sees `state: pending` — before the token mint
+  and the config read. CircleCI sends a pending as each watched job starts, so
+  roughly half of watched-job deliveries cost only signature-verify plus parse,
+  and on a cold isolate the skipped work is an RSA sign and two GitHub API
+  calls. A test pins the path to zero fetches. Relatedly, the webhook HMAC key
+  and the App RSA key are imported into Web Crypto once per isolate and reused,
+  so the recurring crypto cost is the verify/sign itself.
 
 The cost of that second one is debuggability: there is no longer a full
 `Artifacts JSON: …` dump in the action's debug log, because the payload is never
@@ -238,10 +246,14 @@ code that could walk the payload.
 
 Check real usage with `tools/cf-usage.py` (`$CLOUDFLARE_API_TOKEN` if exported,
 else the token `wrangler login` stored). It reports CPU quantiles and invocation
-outcomes, and flags a p99 over the limit. `--check` exits non-zero on anything
-worth a look; `.github/workflows/usage.yml` runs that weekly and opens (or
-comments on) an issue on failure, so the limit check does not depend on anyone
-remembering to run it. It shares the `CLOUDFLARE_ACCOUNT_ID` repo secret with
+outcomes, and flags a p99 over the limit. `--check` exits non-zero on real
+problems — non-success invocation outcomes (where `exceededCpu` kills land), a
+peak day past half the request quota, or no traffic at all — while a p99 over
+the CPU limit alone is only reported, since Cloudflare tolerates occasional
+overruns and failing on it meant a weekly issue for a standing condition
+(gh-132). `.github/workflows/usage.yml` runs the check weekly and opens (or
+comments on) an issue on failure, so it does not depend on anyone remembering
+to run it. It shares the `CLOUDFLARE_ACCOUNT_ID` repo secret with
 deploy but needs its own `CLOUDFLARE_ANALYTICS_TOKEN` — a repo secret with
 Account Analytics: Read **only**, never the deploy token, which can write to
 production.

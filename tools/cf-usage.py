@@ -9,9 +9,12 @@ exported, and additionally Account Settings: Read if it is not.
 
 Usage: ./cf-usage.py [days] [--check]  (default 7 days)
 
---check exits non-zero when something needs attention -- CPU p99 over the
-free-tier limit, non-success invocation outcomes, or a peak day past half the
-request quota -- so CI can turn the report into an issue.
+--check exits non-zero when something needs attention -- non-success
+invocation outcomes (which is where exceededCpu kills appear), a peak day past
+half the request quota, or no traffic at all -- so CI can turn the report into
+an issue. A CPU p99 over the limit is reported but does not fail the check on
+its own: Cloudflare tolerates occasional overruns, and the harm from
+consistent ones shows up as exceededCpu outcomes, which do fail it (gh-132).
 """
 import json
 import os
@@ -155,17 +158,21 @@ def main():
         problems.append(
             f'peak day used {100 * peak / DAILY_FREE_REQUESTS:.0f}% of the '
             f'{DAILY_FREE_REQUESTS:,} req/day quota')
-    # Requests are not the binding constraint at this scale; CPU per invocation is.
+    # Requests are not the binding constraint at this scale; CPU per invocation
+    # is. But a p99 over the limit is a leading indicator, not harm: Cloudflare
+    # tolerates occasional overruns, and the kills that consistent ones produce
+    # fail the check as exceededCpu outcomes above. Failing on the p99 alone
+    # meant a weekly issue for a standing condition with zero kills (gh-132),
+    # which only trains people to ignore the alert.
     worst = max(row['quantiles']['cpuTimeP99'] for row in rows)
     if worst > FREE_CPU_LIMIT_US:
-        problems.append(
-            f'peak cpu p99 {worst / 1000:.1f}ms exceeds the free '
-            f'{FREE_CPU_LIMIT_US / 1000:.0f}ms/invocation limit; Cloudflare tolerates '
-            f'infrequent overruns but kills consistent ones (error 1102)')
+        print(f'NOTE: peak cpu p99 {worst / 1000:.1f}ms exceeds the free '
+              f'{FREE_CPU_LIMIT_US / 1000:.0f}ms/invocation limit; Cloudflare tolerates '
+              f'infrequent overruns but kills consistent ones (error 1102)')
     for problem in problems:
-        print(f'NOTE: {problem}')
+        print(f'PROBLEM: {problem}')
     if check and problems:
-        sys.exit('--check: the NOTEs above need attention')
+        sys.exit('--check: the PROBLEMs above need attention')
 
 
 main()

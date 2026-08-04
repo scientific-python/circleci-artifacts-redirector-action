@@ -67,6 +67,14 @@ export function seenRecently(key, ttl, now = Date.now) {
 
 const API = 'https://api.github.com'
 const UA = {'user-agent': 'circleci-artifacts-redirector-app', 'accept': 'application/vnd.github+json'}
+const ENC = new TextEncoder()
+
+// The webhook secret and the App key are fixed for the life of a deployment,
+// so import each into Web Crypto once per isolate instead of on every use --
+// the HMAC import ran on every delivery. Keyed by the raw material rather than
+// invalidated, so a rotated secret (or a test) never sees a stale key.
+let hmacSecret, hmacKey
+let rsaPem, rsaKey
 
 // Constant-time-ish comparison of the webhook signature.
 export async function verifySignature(secret, body, signature) {
@@ -75,14 +83,17 @@ export async function verifySignature(secret, body, signature) {
   if (!secret || !signature || !signature.startsWith('sha256=')) {
     return false
   }
-  const key = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(secret), {name: 'HMAC', hash: 'SHA-256'}, false, ['verify'])
   const bytes = signature.slice('sha256='.length)
   if (bytes.length !== 64 || !/^[0-9a-f]+$/.test(bytes)) {
     return false
   }
+  if (secret !== hmacSecret) {
+    hmacSecret = secret
+    hmacKey = crypto.subtle.importKey(
+      'raw', ENC.encode(secret), {name: 'HMAC', hash: 'SHA-256'}, false, ['verify'])
+  }
   const provided = Uint8Array.from(bytes.match(/../g).map((h) => parseInt(h, 16)))
-  return crypto.subtle.verify('HMAC', key, provided, new TextEncoder().encode(body))
+  return crypto.subtle.verify('HMAC', await hmacKey, provided, ENC.encode(body))
 }
 
 function base64url(bytes) {
@@ -93,17 +104,25 @@ function base64url(bytes) {
 // Mint an installation access token: sign a JWT with the App key, then trade it
 // in for a token scoped to the repo the event came from.
 export async function mintToken({appId, privateKey, installationId, fetchFn = globalThis.fetch, now = Date.now}) {
-  const der = Uint8Array.from(
-    atob(privateKey.replace(/-----[^-]+-----/g, '').replace(/\s/g, '')),
-    (c) => c.charCodeAt(0))
-  const key = await crypto.subtle.importKey(
-    'pkcs8', der, {name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256'}, false, ['sign'])
+  if (privateKey !== rsaPem) {
+    rsaPem = privateKey
+    rsaKey = (async () => {
+      const der = Uint8Array.from(
+        atob(privateKey.replace(/-----[^-]+-----/g, '').replace(/\s/g, '')),
+        (c) => c.charCodeAt(0))
+      return crypto.subtle.importKey(
+        'pkcs8', der, {name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256'}, false, ['sign'])
+    })()
+  }
+  // An unimportable key rejects identically every time, so caching the
+  // rejection is as correct as recomputing it
+  const key = await rsaKey
   const issued = Math.floor(now() / 1000) - 60
   const claims = {iat: issued, exp: issued + 600, iss: appId}
-  const unsigned = `${base64url(new TextEncoder().encode(JSON.stringify({alg: 'RS256', typ: 'JWT'})))}.` +
-    `${base64url(new TextEncoder().encode(JSON.stringify(claims)))}`
+  const unsigned = `${base64url(ENC.encode(JSON.stringify({alg: 'RS256', typ: 'JWT'})))}.` +
+    `${base64url(ENC.encode(JSON.stringify(claims)))}`
   const signature = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned))
+    'RSASSA-PKCS1-v1_5', key, ENC.encode(unsigned))
   const jwt = `${unsigned}.${base64url(signature)}`
 
   const response = await fetchFn(`${API}/app/installations/${installationId}/access_tokens`, {
@@ -164,6 +183,13 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   // this path must not cost an API call
   if (!(payload.context ?? '').startsWith('ci/circleci: ')) {
     return new Response('ignored: not a CircleCI status', {status: 200})
+  }
+  // The app never posts a pending status, so answer before the token mint and
+  // config read below: CircleCI sends a pending as each job starts, making
+  // this about half of all watched-job deliveries, and on a cold isolate the
+  // work skipped is an RSA sign plus two GitHub API calls.
+  if (payload.state === 'pending') {
+    return new Response('ignored: pending, the app posts no pending statuses', {status: 200})
   }
 
   const repo = payload.repository

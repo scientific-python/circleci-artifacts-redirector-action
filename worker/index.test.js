@@ -297,15 +297,16 @@ test('a missing WEBHOOK_SECRET is a 401, not a crash', async () => {
   }
 })
 
-test('the app never posts a pending status, whatever the config says', async () => {
+test('a pending status costs no API call at all, whatever the config says', async () => {
   for (const config of [CONFIG, CONFIG + 'post-pending: true\n']) {
     clearCache()
     const {fetchFn, seen} = backend({config})
     const response = await handle(webhook({...PAYLOAD, state: 'pending'}), ENV, {fetchFn})
     assert.equal(response.status, 200)
-    assert.match(await response.text(), /ignored/)
-    assert.ok(!seen.some((r) => r.url.includes('/statuses/')), 'nothing posted')
-    assert.ok(!seen.some((r) => r.url.includes('/artifacts')), 'and no CircleCI call')
+    assert.match(await response.text(), /pending/)
+    // Not even the token mint or config read: CircleCI sends a pending as
+    // each job starts, so this path must stay free (both CPU and API quota)
+    assert.deepEqual(seen, [], 'no API calls for a pending status')
   }
 })
 
