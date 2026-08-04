@@ -238,10 +238,14 @@ code that could walk the payload.
 
 Check real usage with `tools/cf-usage.py` (`$CLOUDFLARE_API_TOKEN` if exported,
 else the token `wrangler login` stored). It reports CPU quantiles and invocation
-outcomes, and flags a p99 over the limit. `--check` exits non-zero on anything
-worth a look; `.github/workflows/usage.yml` runs that weekly and opens (or
-comments on) an issue on failure, so the limit check does not depend on anyone
-remembering to run it. It shares the `CLOUDFLARE_ACCOUNT_ID` repo secret with
+outcomes, and flags a p99 over the limit. `--check` exits non-zero on real
+problems — non-success invocation outcomes (where `exceededCpu` kills land), a
+peak day past half the request quota, or no traffic at all — while a p99 over
+the CPU limit alone is only reported, since Cloudflare tolerates occasional
+overruns and failing on it meant a weekly issue for a standing condition
+(gh-132). `.github/workflows/usage.yml` runs the check weekly and opens (or
+comments on) an issue on failure, so it does not depend on anyone remembering
+to run it. It shares the `CLOUDFLARE_ACCOUNT_ID` repo secret with
 deploy but needs its own `CLOUDFLARE_ANALYTICS_TOKEN` — a repo secret with
 Account Analytics: Read **only**, never the deploy token, which can write to
 production.

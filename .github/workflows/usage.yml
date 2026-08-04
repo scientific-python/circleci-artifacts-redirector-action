@@ -1,8 +1,10 @@
 # Weekly report of the deployed Worker's usage against the free-tier limits,
-# because nobody runs tools/cf-usage.py by hand on a schedule. The check that
-# matters is CPU: the free plan allows 10 ms per invocation and the observed
-# p99 already sits near it (see CLAUDE.md). A failed check opens an issue --
-# a red X on a cron run is something nobody sees.
+# because nobody runs tools/cf-usage.py by hand on a schedule. The signal that
+# matters is Cloudflare actually killing invocations (exceededCpu outcomes):
+# the observed CPU p99 already sits near the free plan's 10 ms limit (see
+# CLAUDE.md), so a high p99 alone is only reported in the log, and real
+# problems fail the check and open an issue -- a red X on a cron run is
+# something nobody sees.
 #
 # Secrets:
 #   CLOUDFLARE_ANALYTICS_TOKEN  a repo secret with ONLY Account Analytics:
