@@ -223,6 +223,14 @@ crypto, by a lot. Both halves of that have now been removed:
   scan finds nothing before the stream ends it parses the (then tiny, or
   unexpected) body properly, so a malformed response still throws instead of
   quietly reading as "no artifacts".
+- **Answer pending statuses before the API.** The app never posts one, so
+  `handle` returns as soon as it sees `state: pending` — before the token mint
+  and the config read. CircleCI sends a pending as each watched job starts, so
+  roughly half of watched-job deliveries cost only signature-verify plus parse,
+  and on a cold isolate the skipped work is an RSA sign and two GitHub API
+  calls. A test pins the path to zero fetches. Relatedly, the webhook HMAC key
+  and the App RSA key are imported into Web Crypto once per isolate and reused,
+  so the recurring crypto cost is the verify/sign itself.
 
 The cost of that second one is debuggability: there is no longer a full
 `Artifacts JSON: …` dump in the action's debug log, because the payload is never
