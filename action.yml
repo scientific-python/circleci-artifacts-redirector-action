@@ -38,6 +38,14 @@ inputs:
       `on: status` trigger produces).
     required: false
     default: 'true'
+  no-artifact-state:
+    description: |
+      What to post when the job uploaded no artifacts: 'failure' (red, the
+      default), 'success' (green, linking to the CircleCI job) or 'skip' to
+      post no status at all. Useful when a job that uploads nothing is an
+      expected outcome, e.g. a '[skip circle]' commit.
+    required: false
+    default: 'failure'
 outputs:
   url:
     description: 'The full redirect URL'

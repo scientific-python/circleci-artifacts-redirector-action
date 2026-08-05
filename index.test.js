@@ -7,7 +7,7 @@ import { debug, run } from './index.js'
 import { pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson, resolveStatus } from './src/core.js'
 import { normalizeConfig } from './src/config.js'
 
-const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain', 'post-pending']
+const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain', 'post-pending', 'no-artifact-state']
 const OUTPUT_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'redirector-')), 'output.txt')
 const ARTIFACT = {url: 'https://output.circle-artifacts.com/output/job/abc/artifacts/0/doc/other.html'}
 
@@ -237,6 +237,10 @@ test('statusFor', () => {
   assert.deepEqual(statusFor('pending', false, 'p'), {state: 'pending', description: 'Waiting for CircleCI ...'})
   assert.deepEqual(statusFor('failure', true, 'p'), {state: 'success', description: 'Link to p'})
   assert.deepEqual(statusFor('success', false, 'p'), {state: 'failure', description: 'No artifacts found'})
+  assert.deepEqual(statusFor('success', false, 'p', 'success'), {state: 'success', description: 'No artifacts found'})
+  assert.equal(statusFor('success', false, 'p', 'skip'), null)
+  assert.deepEqual(statusFor('pending', false, 'p', 'skip'), {state: 'pending', description: 'Waiting for CircleCI ...'},
+    'a pending status is unaffected: nothing is known about the artifacts yet')
 })
 
 // Tier 1 fixes
@@ -489,4 +493,42 @@ test('post-pending defaults to on, and only "false" turns it off', async () => {
     })
     assert.equal(status === null ? null : status.state, expected, `post-pending: ${value}`)
   }
+})
+
+// A job that uploads nothing is red by default, but it is an expected outcome
+// for a repo that skips its CircleCI build on demand (scipy's "[skip circle]")
+test('no-artifact-state: success links to the job in green instead', async () => {
+  const {url, status} = await runAction({
+    inputs: {'no-artifact-state': 'success'},
+    bodies: [{items: []}],
+  })
+  assert.equal(url, 'https://circleci.com/gh/scientific-python/circleci-artifacts-redirector-action/94')
+  assert.equal(status.state, 'success')
+  assert.equal(status.description, 'No artifacts found')
+  assert.equal(status.target_url, url, 'still points at the job, not a link that 404s')
+})
+
+test('no-artifact-state: skip posts nothing at all', async () => {
+  const {url, status} = await runAction({
+    inputs: {'no-artifact-state': 'SKIP'},   // and the value is case-insensitive
+    bodies: [{items: []}],
+  })
+  assert.equal(status, null)
+  assert.equal(url, undefined, 'and there is no artifact URL to output either')
+  assert.equal(process.exitCode, 0, 'ignored, not failed')
+})
+
+test('no-artifact-state only applies when there are no artifacts', async () => {
+  for (const value of ['success', 'skip']) {
+    const {status} = await runAction({inputs: {'no-artifact-state': value}, bodies: [{items: [ARTIFACT]}]})
+    assert.equal(status.description, 'Link to doc/index.html', `no-artifact-state: ${value}`)
+  }
+})
+
+test('an unknown no-artifact-state fails the job rather than guessing', async () => {
+  const {status, out} = await runAction({inputs: {'no-artifact-state': 'neutral'}, bodies: [{items: []}]})
+  assert.equal(status, null)
+  assert.equal(process.exitCode, 1)  // core.setFailed()
+  process.exitCode = 0
+  assert.match(out, /::error::no-artifact-state must be one of failure, success, skip, got 'neutral'/)
 })

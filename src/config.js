@@ -5,6 +5,19 @@
 export const DEFAULT_JOBS = 'build_docs,doc,build'
 export const DEFAULT_DOMAIN = 'output.circle-artifacts.com'
 
+// What to post when the job uploaded nothing. `pending` is not offered on
+// purpose: a commit status has no neutral/grey state, and the yellow one would
+// sit there unresolved forever.
+export const NO_ARTIFACT_STATES = ['failure', 'success', 'skip']
+
+function noArtifactState(value) {
+  const state = value.toLowerCase() || 'failure'
+  if (!NO_ARTIFACT_STATES.includes(state)) {
+    throw new Error(`no-artifact-state must be one of ${NO_ARTIFACT_STATES.join(', ')}, got '${value}'`)
+  }
+  return state
+}
+
 // Turn raw string options into the shape the resolver wants. Missing values
 // fall back to the defaults, so callers can pass whatever they happen to have.
 export function normalizeConfig(raw = {}) {
@@ -22,6 +35,7 @@ export function normalizeConfig(raw = {}) {
     // Only a literal "false" turns it off, so existing users keep the
     // "Waiting for CircleCI ..." status they have always had
     postPending: get('post-pending').toLowerCase() !== 'false',
+    noArtifactState: noArtifactState(get('no-artifact-state')),
   }
 }
 

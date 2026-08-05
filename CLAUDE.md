@@ -20,6 +20,27 @@ GitHub commit status:
 Keep logic in `src/`. Anything added to only one front end will drift; that is
 the whole reason the split exists.
 
+### The two front ends do not behave the same
+
+Shared logic does not mean shared behaviour, and advice that is right for one
+is routinely wrong for the other. **Establish which front end a repo uses
+before saying anything about what it will post** — a repo is on the App if
+`.github/circle(ci)?[-_]artifacts.ya?ml` exists and the `on: status` workflow
+is gone (see "Where things stand" for who is where).
+
+| | Action | App |
+|---|---|---|
+| Pending "Waiting for CircleCI ..." status | posted, unless `post-pending: 'false'` | **never**, unconditionally: `handle` returns on `state: pending` and forces `postPending: false` |
+| Options come from | `with:` in the workflow | `.github/circleci-artifacts.yml` on the **default branch** |
+| `url` output | yes | no — no step to consume it |
+| Private CircleCI projects (`api-token`) | yes | no |
+| Duplicate CircleCI deliveries | posted twice | deduped for 5 min |
+| Where a run shows up | a workflow run per `status` event | nowhere; the App's Recent Deliveries tab |
+
+The pending row is the one that bites: any reasoning of the form "a status
+already posted earlier will be left behind" is action-only, and every caveat
+about `post-pending` is too.
+
 ## Commands
 
 ```bash
@@ -77,6 +98,13 @@ Things that cost real debugging time. Do not undo these.
   (gh-119).
 - **The status reports the link, not the build** (gh-57): green when artifacts
   exist, red when they do not, regardless of whether CircleCI passed.
+  `no-artifact-state` (`failure` default / `success` / `skip`) overrides the
+  "red when they do not" half, for repos where a build that uploads nothing is
+  expected (scipy's `[skip circle]`). There is deliberately no grey: a commit
+  status has no neutral state, and `pending` would be a yellow one that never
+  resolves. Doing it properly would mean posting **check runs** instead, i.e. a
+  `checks: write` permission for action users and an App permission change that
+  every installation has to re-approve.
 - **Do not add exact `artifact-path` matching.** It was proposed and declined:
   CircleCI lists only files, so anyone whose path is a directory (`0/dev/`,
   relying on an index redirect) would go permanently red. A broken link is the
@@ -258,25 +286,37 @@ deploy but needs its own `CLOUDFLARE_ANALYTICS_TOKEN` — a repo secret with
 Account Analytics: Read **only**, never the deploy token, which can write to
 production.
 
-## Where things stand (2026-07-28)
+## Where things stand (2026-08-05)
 
-The App prototype is merged/being merged from `app-prototype`. It is **running
-in production for `LABSN/expyfun`**, which removed its workflow — but on a
-*personal* Cloudflare account and a personally-owned App registration, not
-scientific-python infrastructure.
+The App is in production, but on a *personal* Cloudflare account and a
+personally-owned App registration, not scientific-python infrastructure.
+
+Who is on which front end — this is the first thing to establish before
+answering anything about behaviour, per "The two front ends do not behave the
+same":
+
+| Repo | Front end | Evidence |
+|---|---|---|
+| `LABSN/expyfun` | App | `.github/circleci-artifacts.yml`, workflow removed |
+| `scipy/scipy` | App | `.github/circle-artifacts.yml`, workflow removed |
+| `scikit-image/scikit-image` | App | `.github/circleci-artifacts.yaml`, workflow removed |
+| `mne-tools/mne-python` | App | `.github/circle-artifacts.yml`, workflow removed |
+| `braindecode/braindecode` | App | `.github/circleci-artifacts.yaml`; its `push-artifact-to-circleci.yml` is unrelated (it triggers a CircleCI pipeline) |
+| `scikit-learn/scikit-learn` | Action | `.github/workflows/artifact-redirector.yml`, no config file |
+
+Verify from the repo rather than trusting this table, which goes stale: config
+file present + `on: status` workflow gone means the App. Installation state
+itself is only visible from the App's own settings.
 
 Next steps, roughly in order:
 
-1. More repos: `scikit-image/scikit-image` and `braindecode/braindecode`
-   already have the App installed (since 2019) and only need a config file.
-   Then MNE-Python and SciPy.
-2. Hand over to scientific-python: App ownership transfers preserve
+1. Hand over to scientific-python: App ownership transfers preserve
    installations, and the Worker is stateless, so it is `wrangler deploy` +
    three Worker secrets + two repo secrets (see "Deploying from CI") + one
    webhook URL change. Stefan van der Walt (stefanv) runs
    the org's existing Cloudflare Worker (`scientific-python/circleci-proxy`);
    he and Jarrod Millman are the org owners.
-3. Measured load for scikit-learn + MNE-Python + SciPy combined: ~8,200
+2. Measured load for scikit-learn + MNE-Python + SciPy combined: ~8,200
    deliveries/week, about 1.2% of the Workers free tier.
 
 Not supported by the App, by design: private CircleCI projects (would need
