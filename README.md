@@ -67,6 +67,16 @@ jobs:
   status for that). So a job that fails after uploading its artifacts still
   gets a green link, and a job that passes without uploading anything gets a
   red one (see [#57](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/57)).
+- Use `no-artifact-state` to change what a job that uploaded nothing posts,
+  which is worth doing if that is an expected outcome for your repo — a commit
+  that deliberately skips the CircleCI docs build, say. It defaults to
+  `'failure'` (red); `'success'` posts a green status linking to the CircleCI
+  job instead, and `'skip'` posts no status at all (and sets no `url` output).
+  There is no grey option because a GitHub commit status has no neutral state:
+  it is red, green, or yellow, and the yellow one would sit unresolved forever.
+  With `'skip'`, note that a "Waiting for CircleCI ..." status already posted
+  earlier stays yellow, so `post-pending: 'false'` usually belongs with it.
+  (Not a concern under the App, which never posts a pending status at all.)
 - Set `post-pending: 'false'` to skip the "Waiting for CircleCI ..." status
   that is posted while the job is still running. That halves the statuses this
   action creates, and since every status is itself a `status` event, it halves

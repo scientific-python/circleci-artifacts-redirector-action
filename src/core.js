@@ -37,14 +37,21 @@ export function redirectUrl(first, path, domain, fallback) {
 // The status reports whether the link is usable, not whether the CircleCI job
 // passed (gh-57): a job can fail late and still upload good artifacts, and the
 // job's own status already reports the failure.
-export function statusFor(payloadState, hasArtifacts, path) {
+//
+// Returns null when there are no artifacts and the repo asked for no status at
+// all, which is a legitimate outcome rather than a red one for a job that is
+// expected to upload nothing (a "[skip circle]" commit, say).
+export function statusFor(payloadState, hasArtifacts, path, noArtifactState = 'failure') {
   if (payloadState === 'pending') {
     return {state: payloadState, description: 'Waiting for CircleCI ...'}
   }
   if (hasArtifacts) {
     return {state: 'success', description: `Link to ${path}`}
   }
-  return {state: 'failure', description: 'No artifacts found'}
+  if (noArtifactState === 'skip') {
+    return null
+  }
+  return {state: noArtifactState, description: 'No artifacts found'}
 }
 
 // Fail loudly on a non-2xx response. Without this a 404 or a rate limit
@@ -184,12 +191,15 @@ export async function resolveStatus({payload, config, fetchFn = globalThis.fetch
   const first = await firstArtifactUrl(fetchFn, artifactsUrl, {headers})
   log(`First artifact: ${first}`)
 
-  const url = redirectUrl(first, config.path, config.domain, payload.target_url)
-  const {state, description} = statusFor(payload.state, first != null, config.path)
+  const status = statusFor(payload.state, first != null, config.path, config.noArtifactState)
+  if (status === null) {
+    log('Ignoring: no artifacts, and no-artifact-state is "skip"')
+    return null
+  }
   return {
-    url,
-    state,
-    description,
+    url: redirectUrl(first, config.path, config.domain, payload.target_url),
+    state: status.state,
+    description: status.description,
     context: config.jobTitle || `${payload.context} artifact`,
   }
 }

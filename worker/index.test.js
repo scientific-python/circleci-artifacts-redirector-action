@@ -126,6 +126,29 @@ test('ignores repos with no config file, and configs with no artifact-path', asy
   }
 })
 
+test('honours no-artifact-state from the config file', async () => {
+  const empty = {items: []}
+  const {fetchFn, seen} = backend({config: `${CONFIG}no-artifact-state: skip\n`, artifacts: empty})
+  const response = await handle(webhook(PAYLOAD), ENV, {fetchFn})
+  assert.equal(response.status, 200)
+  assert.ok(!seen.some((r) => r.url.includes('/statuses/')), 'nothing posted')
+
+  clearCache()
+  const green = backend({config: `${CONFIG}no-artifact-state: success\n`, artifacts: empty})
+  await handle(webhook(PAYLOAD), ENV, {fetchFn: green.fetchFn})
+  const posted = JSON.parse(green.seen.find((r) => r.url.includes('/statuses/')).body)
+  assert.equal(posted.state, 'success')
+  assert.equal(posted.description, 'No artifacts found')
+  assert.equal(posted.target_url, PAYLOAD.target_url)
+})
+
+// i.e. the delivery 500s and shows up in Recent Deliveries, rather than the
+// repo silently getting whatever we guessed it meant
+test('a config with an unusable no-artifact-state throws', async () => {
+  const {fetchFn} = backend({config: `${CONFIG}no-artifact-state: grey\n`})
+  await assert.rejects(() => handle(webhook(PAYLOAD), ENV, {fetchFn}), /no-artifact-state must be one of/)
+})
+
 test('ignores a job the config does not watch', async () => {
   const {fetchFn, seen} = backend({config: 'artifact-path: p\ncircleci-jobs: other\n'})
   const response = await handle(webhook(PAYLOAD), ENV, {fetchFn})
@@ -229,6 +252,7 @@ test('normalizeConfig applies the same defaults as the action', () => {
   assert.equal(config.domain, 'output.circle-artifacts.com')
   assert.equal(config.path, 'p')
   assert.equal(config.apiToken, '')
+  assert.equal(config.noArtifactState, 'failure')
   assert.deepEqual(normalizeConfig().jobNames, ['build_docs', 'doc', 'build'])
   assert.deepEqual(normalizeConfig({'circleci-jobs': 'a, ,b '}).jobNames, ['a', 'b'])
 })

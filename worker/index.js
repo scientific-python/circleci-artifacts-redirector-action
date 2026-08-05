@@ -214,7 +214,7 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
 
   const status = await resolveStatus({payload, config, fetchFn, log})
   if (status === null) {
-    return new Response('ignored: not a watched job', {status: 200})
+    return new Response('ignored: not a watched job, or no artifacts with no-artifact-state: skip', {status: 200})
   }
 
   // The URL is part of the key, so a re-run that produces different artifacts
