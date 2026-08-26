@@ -98,29 +98,19 @@ jobs:
 > (rather than app) API and that this is always tied to the `master`/default
 > branch of a given repository.
 
-## GitHub App (prototype, not yet deployed)
+## GitHub App
 
-`worker/index.js` is a Cloudflare Worker that does the same job as the action,
-but as a GitHub App reacting to `status` webhooks server-side. The point is
+The same job is also available as a
+[GitHub App](https://github.com/apps/circleci-artifacts-redirector), in
+production use across several scientific-python ecosystem repositories. Under
+the hood it is a Cloudflare Worker (`worker/index.js`) reacting to `status`
+webhooks server-side. The point is
 [#27](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/27):
 with the App there is no workflow, so there are **no workflow runs at all** —
 instead of one run per status event, most of which do nothing.
 
-Instead of a workflow file, a repo using the App has
-`.github/circleci-artifacts.yml`, which is the `with:` block of the old
-workflow with the indentation and `repo-token` removed:
-
-```yaml
-artifact-path: 0/doc/index.html
-circleci-jobs: build_docs
-job-title: Check the rendered docs here!
-```
-
-Since migrating usually means `git mv`-ing the old workflow, the underscore
-and `circle` spellings are accepted too — `circle-artifacts.yml`,
-`circle_artifacts.yml`, `circleci_artifacts.yml`, and the `.yaml` versions of
-each all work.
-
+Instead of a workflow file, a repo using the App has a small
+`.github/circleci-artifacts.yml` config file (see the migration guide below).
 The config is always read from the **default branch**, so a pull request
 (including one from a fork) cannot change where the link points.
 
@@ -141,12 +131,47 @@ Differences from the action, by design:
 
 The action is not going away; the App is a second way to run the same code.
 
+### Migrating from the GitHub Action to the App
+
+1. [Install the App](https://github.com/apps/circleci-artifacts-redirector)
+   on your repository (or organization).
+2. Turn the workflow into the config file — usually a `git mv` plus trimming:
+
+   ```bash
+   git mv .github/workflows/circleci_redirect.yml .github/circleci-artifacts.yml
+   ```
+
+   then cut everything except the `with:` options, unindented. Drop
+   `repo-token` (the App authenticates as itself) and `api-token` (not
+   supported — see the differences above). What remains is typically:
+
+   ```yaml
+   artifact-path: 0/doc/index.html
+   circleci-jobs: build_docs
+   job-title: Check the rendered docs here!
+   ```
+
+   Since migrating usually means `git mv`-ing the old workflow, the
+   underscore and `circle` spellings are accepted too —
+   `circle-artifacts.yml`, `circle_artifacts.yml`, `circleci_artifacts.yml`,
+   and the `.yaml` versions of each all work.
+
+3. Merge. The App reads the config only from the default branch, so nothing
+   changes until the PR lands — and deleting the workflow in that same PR is
+   exactly what stops the per-status workflow runs.
+
+The statuses posted are the same as before, minus the pending one; the
+listed differences above are the only behaviour changes.
+
 ## Limitations
 
 Currently has (known) limitations:
 
 - The `on: status` event is way too broad, but there doesn't seem to be a way of limiting it.
   This leads to lots of 1-2s actions for each status update (see [#27](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/27)).
+  This only affects the action: the App has no workflow, so
+  [migrating](#migrating-from-the-github-action-to-the-app) avoids it
+  entirely.
 - Only allows redirecting to a single file that must be configured ahead of
   time as a file (cannot be changed within the CircleCI run)
 
