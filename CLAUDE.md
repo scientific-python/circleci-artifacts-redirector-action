@@ -168,8 +168,14 @@ a manual `workflow_dispatch`. Two repo secrets:
 
 | Secret | What |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | dashboard → My Profile → API Tokens, **Edit Cloudflare Workers** template |
-| `CLOUDFLARE_ACCOUNT_ID` | dashboard → Workers & Pages → Account ID; an identifier rather than a credential, and also used by the weekly usage check |
+| `CLOUDFLARE_API_TOKEN` | Scientific Python account → Manage Account → **Account API Tokens** (`circleci-artifacts-redirector-deploy`), **Edit Cloudflare Workers** template |
+| `CLOUDFLARE_ACCOUNT_ID` | the Scientific Python account; an identifier rather than a credential, and also used by the weekly usage check |
+
+Both Cloudflare tokens are **account-owned** (Account API Tokens, not My
+Profile → API Tokens), so they survive any member — including their creator —
+leaving the account. Account-owned tokens verify against
+`/accounts/<id>/tokens/verify`, not `/user/tokens/verify`, which rejects them
+as "Invalid API Token".
 
 For local read-only work, mint a *second* token rather than reusing the deploy
 one — it can write to production. `tools/cf-usage.py` needs exactly **Account
@@ -286,10 +292,18 @@ deploy but needs its own `CLOUDFLARE_ANALYTICS_TOKEN` — a repo secret with
 Account Analytics: Read **only**, never the deploy token, which can write to
 production.
 
-## Where things stand (2026-08-05)
+## Where things stand (2026-08-26)
 
-The App is in production, but on a *personal* Cloudflare account and a
-personally-owned App registration, not scientific-python infrastructure.
+The Worker runs in the **Scientific Python Cloudflare account** (migrated
+2026-08-26 from larsoner's personal account), serving at
+`https://circleci-artifacts-redirector-app.scientific-python.workers.dev` —
+the GitHub App's webhook URL. No custom domain: the `scientific-python.dev`
+zone lives in stefanv's personal Cloudflare account, and a Worker's custom
+domain must share the Worker's account (see the comment in `wrangler.toml`
+for what to enable if the zone ever moves). The App *registration* is still
+personally owned by larsoner; transferring it to the scientific-python org is
+the remaining handover step, preserves installations, and touches nothing on
+Cloudflare.
 
 Who is on which front end — this is the first thing to establish before
 answering anything about behaviour, per "The two front ends do not behave the
@@ -310,13 +324,15 @@ itself is only visible from the App's own settings.
 
 Next steps, roughly in order:
 
-1. Hand over to scientific-python: App ownership transfers preserve
-   installations, and the Worker is stateless, so it is `wrangler deploy` +
-   three Worker secrets + two repo secrets (see "Deploying from CI") + one
-   webhook URL change. Stefan van der Walt (stefanv) runs
-   the org's existing Cloudflare Worker (`scientific-python/circleci-proxy`);
-   he and Jarrod Millman are the org owners.
-2. Measured load for scikit-learn + MNE-Python + SciPy combined: ~8,200
+1. Transfer the GitHub App registration to the scientific-python org
+   (Settings → Developer settings → the App → Advanced → Transfer ownership;
+   an org owner — stefanv or Jarrod Millman — accepts). Installations, App ID
+   and keys all survive; nothing on Cloudflare changes.
+2. Decommission the old Worker on larsoner's personal account once the new
+   one has soaked: `wrangler delete` there, then delete the App's *old*
+   private key (the new Worker signs with a second key generated 2026-08-26)
+   and larsoner's now-unused user-owned Cloudflare tokens.
+3. Measured load for scikit-learn + MNE-Python + SciPy combined: ~8,200
    deliveries/week, about 1.2% of the Workers free tier.
 
 Not supported by the App, by design: private CircleCI projects (would need
