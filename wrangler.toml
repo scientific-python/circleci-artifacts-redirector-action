@@ -1,3 +1,16 @@
 name = "circleci-artifacts-redirector-app"
 main = "worker/index.js"
 compatibility_date = "2026-07-28"
+# Explicit, because the GitHub App's webhook points at the *.workers.dev URL:
+# a deploy that declares routes silently disables workers.dev serving unless
+# this is set, which took the App down once (every delivery got a Cloudflare
+# edge 404, error 1042, without ever reaching the Worker).
+workers_dev = true
+# No custom domain yet: a Worker and its domain's zone must live in the same
+# Cloudflare account, and the scientific-python.dev zone is currently in
+# stefanv's personal account while this Worker is in the Scientific Python
+# account. If the zone ever moves there, add
+#   routes = [{ pattern = "circleci-artifacts.scientific-python.dev", custom_domain = true, zone_name = "scientific-python.dev" }]
+# and point the GitHub App's webhook at it (the deploy token then also needs
+# Zone: Read and DNS: Edit on the zone). Until then the webhook uses the
+# stable *.workers.dev URL.
