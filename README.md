@@ -163,6 +163,46 @@ The action is not going away; the App is a second way to run the same code.
 The statuses posted are the same as before, minus the pending one; the
 listed differences above are the only behaviour changes.
 
+## Troubleshooting
+
+### A pull request from a fork gets no CircleCI statuses at all
+
+Not just no artifact link — no `ci/circleci: …` statuses either. The usual
+cause is on the contributor's side rather than in this project: if they follow
+(or have set up as a project) **their own fork** on CircleCI, CircleCI builds
+the pull request under their personal CircleCI org and posts the commit
+statuses to the fork. Commit statuses are per-repository, so the upstream pull
+request never sees them, and neither the action nor the App is even reached —
+there is no `status` event to react to. In CircleCI's words:
+
+> If you are following your fork on CircleCI, we will only build on that fork
+> and not the parent, so the parent's PR will not get status updates.
+
+Nothing can be changed in the upstream repository to work around this; CircleCI
+chose where to build before any status existed. The contributor has to
+**unfollow (or delete) their fork's project** at <https://app.circleci.com/>,
+after which their pull requests build under the upstream project like everyone
+else's. They can follow the upstream project itself if they want to watch the
+runs.
+
+To confirm this is what happened — rather than one of the several other reasons
+a build can go missing — run the diagnostic against the pull request:
+
+```bash
+tools/diagnose-pr.py https://github.com/scipy/scipy/pull/26027
+```
+
+It compares the pipelines CircleCI ran for the upstream project's `pull/<N>`
+branch against those it ran for the fork's branch, and prints paste-ready text
+for the contributor when the fork is the one that built. Everything it queries
+is public, so no token is needed (though `$GITHUB_TOKEN` avoids GitHub's
+anonymous rate limit). When neither project built the commit it says so and
+lists the other causes to check, instead of blaming the fork.
+
+Do **not** suggest installing the CircleCI GitHub App as a fix: CircleCI's App
+integration never builds forked pull requests at all, so it makes this strictly
+worse. The OAuth integration is the one that supports them.
+
 ## Limitations
 
 Currently has (known) limitations:
