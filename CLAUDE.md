@@ -16,6 +16,7 @@ GitHub commit status:
 | `worker/index.js` | GitHub App entry point: a Cloudflare Worker handling `status` webhooks |
 | `dist/index.js` | the bundle the action actually runs; **committed**, built by `ncc` |
 | `tools/cf-usage.py` | Cloudflare usage report for the deployed Worker (stdlib only) |
+| `tools/diagnose-pr.py` | why a fork PR got no CircleCI status; public APIs, stdlib only |
 
 Keep logic in `src/`. Anything added to only one front end will drift; that is
 the whole reason the split exists.
@@ -50,6 +51,7 @@ npx ncc build index.js -o dist   # after ANY change to index.js or src/
 pre-commit run --all-files       # yamllint + eslint, as CI runs them
 npx wrangler deploy              # manual deploy; normally CI does this, see below
 tools/cf-usage.py [days]         # deployed Worker usage vs the free-tier limits
+tools/diagnose-pr.py <org>/<repo> <PR#>   # why a fork PR has no CircleCI status
 ```
 
 CI enforces 100% coverage. New code needs tests, or `/* node:coverage
@@ -121,8 +123,17 @@ Things that cost real debugging time. Do not undo these.
 - **A fork that is itself a followed CircleCI project suppresses upstream
   builds.** CircleCI builds it in the fork's project and never creates a
   `pull/N` pipeline in the parent, so the upstream PR shows no status while
-  every setting looks correct. Check
-  `/api/v1.1/project/github/<org>/<repo>/settings` for `build-fork-prs`.
+  every setting looks correct. `tools/diagnose-pr.py <org>/<repo> <PR#>`
+  decides it: `/api/v2/project/gh/<parent>/pipeline?branch=pull/<N>` empty
+  while `…/gh/<fork-owner>/<repo>/pipeline?branch=<head ref>` is not. Both are
+  public and unauthenticated; `/api/v2/project/gh/<owner>/<repo>` is **not** a
+  discriminator (it answers 200 for any fork of a known project), and
+  `/api/v1.1/…/settings` needs a token and answers 403 without one.
+  Only the contributor can fix it, by unfollowing their fork — no upstream
+  setting helps, because there is no event upstream to react to. Very often
+  the fork build also errors at config-parse time (an org-settings orb
+  restriction, say), so the contributor sees nothing anywhere and there is
+  nothing to forward even in principle.
 - **Never suggest installing the CircleCI GitHub App as a fix for forked PRs**
   — App pipelines are *never* built on forks, so it makes this strictly worse.
   The OAuth integration is the one that supports them.
