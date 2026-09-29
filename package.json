@@ -35,7 +35,7 @@
     "@vercel/ncc": "^0.45.0",
     "eslint": "^10.8.1",
     "globals": "^17.11.0",
-    "wrangler": "^4.131.0"
+    "wrangler": "^4.143.1"
   },
   "private": true,
   "engines": {
