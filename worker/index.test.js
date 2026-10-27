@@ -1,7 +1,7 @@
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import worker, { handle, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS } from './index.js'
+import worker, { handle, keepSteps, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS } from './index.js'
 import { parseConfig, normalizeConfig } from '../src/config.js'
 
 beforeEach(clearCache)
@@ -267,11 +267,62 @@ test('the default entry point answers without touching the network', async (t) =
   assert.equal(response.status, 500, 'failures surface to GitHub as a failed delivery')
   assert.ok((await response.text()).length, 'logging leaves the body readable')
 
-  // Every delivery logs the path it took, which Workers Logs pairs with CPU time
-  const lines = logged.mock.calls.map((call) => call.arguments[0])
-  assert.equal(lines.length, 2)
-  assert.match(lines[0], / 401 bad signature$/)
-  assert.match(lines[1], / 500 \S/)
+  // Every delivery logs one record of the path it took, which Workers Logs
+  // pairs with that invocation's CPU time
+  const records = logged.mock.calls.map((call) => call.arguments[0])
+  assert.equal(records.length, 2)
+  assert.equal(records[0].status, 401)
+  assert.equal(records[0].result, 'bad signature')
+  assert.equal(records[1].status, 500)
+  assert.equal(records[1].repo, 'scientific-python/demo', 'what handle() learned survives a throw')
+  assert.equal(records[1].token, 'miss')
+  assert.equal(records[1].isolate, records[0].isolate, 'one isolate')
+  assert.equal(records[1].served, records[0].served + 1, 'counts deliveries per isolate')
+})
+
+test('the log record names the delivery and the steps taken', async (t) => {
+  const logged = t.mock.method(console, 'log', () => {})
+  t.mock.method(globalThis, 'fetch', backend().fetchFn)
+  const request = webhook(PAYLOAD)
+  request.headers.set('x-github-delivery', 'abc-123')
+  assert.equal((await worker.fetch(request, ENV)).status, 200)
+
+  const record = logged.mock.calls[0].arguments[0]
+  assert.equal(record.delivery, 'abc-123')
+  assert.match(record.result, /^posted success: /)
+  assert.ok(record.steps.some((step) => step.startsWith('First artifact: ')), 'core narration kept')
+})
+
+test('keepSteps keeps strings and never evaluates a thunk', () => {
+  const steps = []
+  const log = keepSteps(steps)
+  log('cheap')
+  log(() => assert.fail('a thunk is the expensive kind and must not run'))
+  assert.deepEqual(steps, ['cheap'])
+})
+
+test('trace records what each delivery cost', async () => {
+  const {fetchFn} = backend()
+  const first = {}
+  await handle(webhook(PAYLOAD), ENV, {fetchFn, trace: first})
+  assert.equal(first.repo, 'scientific-python/demo')
+  assert.equal(first.installation, 42)
+  assert.equal(first.context, 'ci/circleci: build')
+  assert.equal(first.state, 'success')
+  assert.equal(first.bytes, JSON.stringify(PAYLOAD).length)
+  assert.equal(first.token, 'miss')
+  assert.equal(first.config, 'miss')
+
+  const second = {}
+  await handle(webhook({...PAYLOAD, sha: 'cafe'}), ENV, {fetchFn, trace: second})
+  assert.equal(second.token, 'hit')
+  assert.equal(second.config, 'hit')
+
+  // A delivery that stops early records nothing about caches it never reached
+  const pending = {}
+  await handle(webhook({...PAYLOAD, state: 'pending'}), ENV, {fetchFn, trace: pending})
+  assert.equal(pending.state, 'pending')
+  assert.equal(pending.token, undefined)
 })
 
 test('reuses the token and config across events in the same isolate', async () => {

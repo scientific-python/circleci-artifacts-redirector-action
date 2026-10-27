@@ -166,11 +166,24 @@ export async function readConfig(fetchFn, repo, token) {
   return parseConfig(atob(content.replace(/\s/g, '')))
 }
 
-export async function handle(request, env, {fetchFn = globalThis.fetch, log = () => {}, now = Date.now} = {}) {
+// Like cached(), but records in trace[field] whether the value had to be
+// produced, so the log can show how often the per-isolate caches actually hit.
+function traced(trace, field, key, ttl, produce, now) {
+  trace[field] = 'hit'
+  return cached(key, ttl, () => {
+    trace[field] = 'miss'
+    return produce()
+  }, now)
+}
+
+// `trace` collects facts about this delivery for the fetch handler to log;
+// handle() only ever adds to it.
+export async function handle(request, env, {fetchFn = globalThis.fetch, log = () => {}, now = Date.now, trace = {}} = {}) {
   if (request.method !== 'POST') {
     return new Response('POST only', {status: 405})
   }
   const body = await request.text()
+  trace.bytes = body.length
   if (!await verifySignature(env.WEBHOOK_SECRET, body, request.headers.get('x-hub-signature-256'))) {
     return new Response('bad signature', {status: 401})
   }
@@ -179,6 +192,8 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   }
 
   const payload = JSON.parse(body)
+  trace.context = payload.context
+  trace.state = payload.state
   // Cheap filter first: most status events on a busy repo are not ours, and
   // this path must not cost an API call
   if (!(payload.context ?? '').startsWith('ci/circleci: ')) {
@@ -193,14 +208,16 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   }
 
   const repo = payload.repository
-  const token = await cached(`token:${payload.installation.id}`, TOKEN_TTL_MS, () => mintToken({
+  trace.repo = repo.full_name
+  trace.installation = payload.installation.id
+  const token = await traced(trace, 'token', `token:${payload.installation.id}`, TOKEN_TTL_MS, () => mintToken({
     appId: env.APP_ID,
     privateKey: env.PRIVATE_KEY,
     installationId: payload.installation.id,
     fetchFn,
   }), now)
-  const raw = await cached(
-    `config:${repo.full_name}@${repo.default_branch}`, CONFIG_TTL_MS,
+  const raw = await traced(
+    trace, 'config', `config:${repo.full_name}@${repo.default_branch}`, CONFIG_TTL_MS,
     () => readConfig(fetchFn, repo, token), now)
   if (raw === null) {
     return new Response(`ignored: no ${CONFIG_DIR}/${CANONICAL_CONFIG}`, {status: 200})
@@ -240,11 +257,30 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   return new Response(`posted ${status.state}: ${status.url}`, {status: 200})
 }
 
+// resolveStatus narrates its steps through `log`; keep the plain strings and
+// drop thunks unevaluated, since those are the expensive ones (see CLAUDE.md).
+// The strings are built whether or not anyone keeps them, so this is free.
+export function keepSteps(steps) {
+  return (message) => {
+    if (typeof message === 'string') {
+      steps.push(message)
+    }
+  }
+}
+
+// Which isolate served a delivery and how many it had served by then, so the
+// log can tell a cold isolate (served: 1) from a warm one. The id is made on
+// first use because Workers forbid randomness at global scope.
+let isolate
+let served = 0
+
 export default {
   async fetch(request, env) {
+    isolate ??= crypto.randomUUID().slice(0, 8)
+    const trace = {delivery: request.headers.get('x-github-delivery'), isolate, served: ++served, steps: []}
     let response
     try {
-      response = await handle(request, env)
+      response = await handle(request, env, {log: keepSteps(trace.steps), trace})
     } catch (error) {
       // A 500 tells GitHub the delivery failed, so it shows up in the App's
       // "Recent Deliveries" tab rather than vanishing. GitHub never retries a
@@ -254,10 +290,11 @@ export default {
       // App API) would put App credentials in CI. See CLAUDE.md.
       response = new Response(String(error), {status: 500})
     }
-    // One line per delivery saying which path it took, so Workers Logs (which
-    // records each invocation's CPU time alongside it) can attribute the CPU
-    // tail to a path; analytics alone cannot split it. See CLAUDE.md.
-    console.log(`${request.headers.get('x-github-delivery')} ${response.status} ${await response.clone().text()}`)
+    // One structured record per delivery saying which path it took and what it
+    // cost in API calls, so Workers Logs (which records each invocation's CPU
+    // time alongside it, and indexes these fields) can attribute the CPU tail;
+    // analytics alone cannot split it. See CLAUDE.md.
+    console.log({...trace, status: response.status, result: await response.clone().text()})
     return response
   },
 }
