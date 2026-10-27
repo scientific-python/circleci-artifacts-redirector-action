@@ -21,12 +21,23 @@ export const CANONICAL_CONFIG = 'circleci-artifacts.yml'
 // circle_artifacts.yml (SciPy), circle-artifacts.yml, circleci_artifacts.yml…
 // so accept any of those spellings rather than making them rename the file.
 export const CONFIG_NAME = /^circle(ci)?[-_]artifacts\.ya?ml$/
-// Cloudflare reuses an isolate across many requests, so a plain Map removes
-// most of the token and config traffic without needing KV. Nothing here is
-// correctness-critical: a cold isolate simply fetches again.
+// Cloudflare can reuse an isolate across requests, so a plain Map caches the
+// token and config per isolate. Nothing here is correctness-critical: a cold
+// isolate simply fetches again.
 export const TOKEN_TTL_MS = 50 * 60 * 1000   // installation tokens last an hour
 export const CONFIG_TTL_MS = 10 * 60 * 1000
 export const DEDUPE_TTL_MS = 5 * 60 * 1000
+// ...but in practice Cloudflare spreads deliveries over so many isolates that
+// the Map rarely hits (13 isolates for 19 deliveries in one tail), and a miss
+// costs a token mint plus a config read: 5-13 ms of the 10 ms CPU limit. So the
+// config, which changes rarely, is also shared across isolates through KV when
+// the CONFIG_CACHE binding exists. This is what makes an installation on a
+// repo with no config (an org-wide install, say) cheap: its deliveries end at
+// a KV read, with no token minted at all. The cost is that adding or editing
+// a config can take up to KV_CONFIG_TTL_S (plus CONFIG_TTL_MS) to take effect.
+// The key carries a format version so that a rollback never misreads a value.
+export const KV_CONFIG_TTL_S = 60 * 60
+export const KV_CONFIG_PREFIX = 'config:v1:'
 const cache = new Map()
 
 export function clearCache() {
@@ -176,6 +187,33 @@ function traced(trace, field, key, ttl, produce, now) {
   }, now)
 }
 
+// Read the config through KV when it is bound, falling back to `read` (the
+// GitHub API) on a miss and storing what it returns -- including null, which
+// is the whole point for a repo with no config. KV is best-effort like every
+// other cache here: a failed get or put (the free plan allows 1,000 writes a
+// day) is recorded in the trace and otherwise ignored, never failing the
+// delivery.
+export async function sharedConfig(kv, key, read, trace) {
+  if (!kv) {
+    return read()
+  }
+  const stored = await kv.get(KV_CONFIG_PREFIX + key, 'json').catch(() => {
+    trace.kv = 'get-error'
+    return null
+  })
+  if (stored !== null) {
+    trace.kv = 'hit'
+    return stored.config
+  }
+  trace.kv ??= 'miss'
+  const config = await read()
+  await kv.put(KV_CONFIG_PREFIX + key, JSON.stringify({config}), {expirationTtl: KV_CONFIG_TTL_S})
+    .catch(() => {
+      trace.kv = 'put-error'
+    })
+  return config
+}
+
 // `trace` collects facts about this delivery for the fetch handler to log;
 // handle() only ever adds to it.
 export async function handle(request, env, {fetchFn = globalThis.fetch, log = () => {}, now = Date.now, trace = {}} = {}) {
@@ -210,15 +248,20 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   const repo = payload.repository
   trace.repo = repo.full_name
   trace.installation = payload.installation.id
-  const token = await traced(trace, 'token', `token:${payload.installation.id}`, TOKEN_TTL_MS, () => mintToken({
+  // Minted only when something needs it -- reading the config on a cache miss,
+  // or posting -- so a delivery the cached config rules out (no config file,
+  // a job that is not watched) never pays for the RSA sign
+  let minted
+  const token = () => minted ??= traced(trace, 'token', `token:${payload.installation.id}`, TOKEN_TTL_MS, () => mintToken({
     appId: env.APP_ID,
     privateKey: env.PRIVATE_KEY,
     installationId: payload.installation.id,
     fetchFn,
   }), now)
+  const configKey = `${repo.full_name}@${repo.default_branch}`
   const raw = await traced(
-    trace, 'config', `config:${repo.full_name}@${repo.default_branch}`, CONFIG_TTL_MS,
-    () => readConfig(fetchFn, repo, token), now)
+    trace, 'config', `config:${configKey}`, CONFIG_TTL_MS,
+    () => sharedConfig(env.CONFIG_CACHE, configKey, async () => readConfig(fetchFn, repo, await token()), trace), now)
   if (raw === null) {
     return new Response(`ignored: no ${CONFIG_DIR}/${CANONICAL_CONFIG}`, {status: 200})
   }
@@ -243,7 +286,7 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
 
   const response = await fetchFn(`${API}/repos/${repo.full_name}/statuses/${payload.sha}`, {
     method: 'POST',
-    headers: {...UA, authorization: `Bearer ${token}`},
+    headers: {...UA, authorization: `Bearer ${await token()}`},
     body: JSON.stringify({
       state: status.state,
       target_url: status.url,

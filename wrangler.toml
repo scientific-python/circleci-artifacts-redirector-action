@@ -23,3 +23,12 @@ workers_dev = true
 # affect rolling back a version.
 [observability]
 enabled = true
+
+# Shares the App config (and its absence) across isolates, which Cloudflare
+# reuses too rarely for the in-memory cache to hit; see worker/index.js and
+# CLAUDE.md. A pure cache with versioned keys, so a version without this
+# binding ignores it and rollback is unaffected. Created 2026-10-27 with
+# `wrangler kv namespace create CONFIG_CACHE` in the Scientific Python account.
+[[kv_namespaces]]
+binding = "CONFIG_CACHE"
+id = "054c91f42b9c4c749396725bd19b1ab2"
