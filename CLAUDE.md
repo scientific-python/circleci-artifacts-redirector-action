@@ -254,9 +254,23 @@ not a code change):
 - Analytics cannot split CPU by path, and `wrangler tail` needs the deploy
   token. So Workers Logs is on (`[observability]` in `wrangler.toml`): each
   invocation record carries its CPU time, and the `fetch` handler logs one
-  line per delivery (`<delivery id> <status> <response text>`) naming the path
-  it took. Group CPU by that line in the dashboard's Observability tab.
-  Retention is 3 days on the free plan, so look within that window.
+  structured record per delivery: `delivery`, `isolate` (a random id per
+  isolate) and `served` (1 means a cold isolate), `bytes`, `repo`,
+  `installation`, `context`, `state`, `token`/`config` (`hit` or `miss` on the
+  per-isolate caches; absent when the delivery stopped before them), `steps`
+  (the core's `log` narration, strings only — thunks are dropped unevaluated
+  by `keepSteps`), `status` and `result` (the response text). Workers Logs
+  indexes these fields, but the record is a separate event from the
+  invocation's own (which carries `cpuTimeMs`), so join the two on the
+  request. `wrangler tail --format json` gives both in one object, with
+  `cpuTime` alongside `logs`. Retention is 3 days on the free plan, so look
+  within that window.
+- **First tail with the path logged (10 min, 21 deliveries, 2026-10-27):**
+  pending ~1.5 ms and not-CircleCI ~1 ms; `no .github/circleci-artifacts.yml`
+  ~5.5 ms and not-watched/no-artifacts ~8.5 ms (token + config, ~0.4 s wall);
+  `posted success` 13–16 ms. So the deliveries over the limit are the ones
+  that reach GitHub, and at least one installation has no config file yet
+  still pays a token mint and a config read on each cache miss.
 
 What actually costs CPU here, measured on a scikit-learn-sized listing:
 
