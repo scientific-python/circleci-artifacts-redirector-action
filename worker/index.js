@@ -242,8 +242,9 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
 
 export default {
   async fetch(request, env) {
+    let response
     try {
-      return await handle(request, env)
+      response = await handle(request, env)
     } catch (error) {
       // A 500 tells GitHub the delivery failed, so it shows up in the App's
       // "Recent Deliveries" tab rather than vanishing. GitHub never retries a
@@ -251,7 +252,12 @@ export default {
       // means this one status is simply never posted -- accepted: a build
       // emits several status events, and the fix (a cron redelivering via the
       // App API) would put App credentials in CI. See CLAUDE.md.
-      return new Response(String(error), {status: 500})
+      response = new Response(String(error), {status: 500})
     }
+    // One line per delivery saying which path it took, so Workers Logs (which
+    // records each invocation's CPU time alongside it) can attribute the CPU
+    // tail to a path; analytics alone cannot split it. See CLAUDE.md.
+    console.log(`${request.headers.get('x-github-delivery')} ${response.status} ${await response.clone().text()}`)
+    return response
   },
 }

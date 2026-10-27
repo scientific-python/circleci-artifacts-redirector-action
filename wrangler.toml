@@ -14,3 +14,12 @@ workers_dev = true
 # and point the GitHub App's webhook at it (the deploy token then also needs
 # Zone: Read and DNS: Edit on the zone). Until then the webhook uses the
 # stable *.workers.dev URL.
+
+# Workers Logs: a record per invocation with its CPU and wall time, plus the
+# one-line console.log the fetch handler writes saying which path a delivery
+# took. Analytics only give CPU quantiles for the Worker as a whole, which
+# cannot say which path the tail comes from. Free plan: 200,000 events/day
+# (we use ~1,300) and 3 days of retention. Not a binding, so it does not
+# affect rolling back a version.
+[observability]
+enabled = true
