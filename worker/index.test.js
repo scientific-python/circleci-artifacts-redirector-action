@@ -1,7 +1,7 @@
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import worker, { handle, keepSteps, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS } from './index.js'
+import worker, { handle, keepSteps, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS, KV_CONFIG_TTL_S, KV_CONFIG_PREFIX } from './index.js'
 import { parseConfig, normalizeConfig } from '../src/config.js'
 
 beforeEach(clearCache)
@@ -466,4 +466,83 @@ test('a delivery never serializes the artifacts payload', async () => {
   const response = await handle(webhook(PAYLOAD), ENV, {fetchFn})
   assert.equal(response.status, 200, 'the status still posts')
   assert.equal(artifacts.serialized, 0, 'serializing it costs ~2x parsing it')
+})
+
+// A Map-backed stand-in for a Workers KV namespace, with the two calls used
+function fakeKV({getError = false, putError = false} = {}) {
+  const store = new Map()
+  const puts = []
+  return {
+    store, puts,
+    async get(key, type) {
+      assert.equal(type, 'json')
+      if (getError) {
+        throw new Error('KV get failed')
+      }
+      return store.has(key) ? JSON.parse(store.get(key)) : null
+    },
+    async put(key, value, options) {
+      puts.push({key, value, options})
+      if (putError) {
+        throw new Error('KV put limit exceeded')
+      }
+      store.set(key, value)
+    },
+  }
+}
+const KV_KEY = `${KV_CONFIG_PREFIX}scientific-python/demo@main`
+
+test('a config shared through KV survives a cold isolate', async () => {
+  const kv = fakeKV()
+  const {fetchFn, seen} = backend()
+  const first = {}
+  await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace: first})
+  assert.equal(first.kv, 'miss')
+  assert.deepEqual(kv.puts.map((p) => [p.key, p.options.expirationTtl]), [[KV_KEY, KV_CONFIG_TTL_S]])
+
+  clearCache()   // a different isolate: the Map is empty, KV is not
+  const before = seen.length
+  const second = {}
+  const response = await handle(webhook({...PAYLOAD, sha: 'cafe'}), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace: second})
+  assert.match(await response.text(), /^posted success/)
+  assert.equal(second.kv, 'hit')
+  assert.ok(!seen.slice(before).some((r) => r.url.includes('/contents/')), 'config not refetched')
+})
+
+test('a repo with no config ends at KV, with no token minted', async () => {
+  const kv = fakeKV()
+  kv.store.set(KV_KEY, JSON.stringify({config: null}))
+  const {fetchFn, seen} = backend()
+  const trace = {}
+  const response = await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace})
+  assert.match(await response.text(), /^ignored: no /)
+  assert.deepEqual(seen, [], 'no GitHub call at all, not even the token')
+  assert.equal(trace.token, undefined)
+})
+
+test('a job the cached config does not watch costs no token either', async () => {
+  const kv = fakeKV()
+  kv.store.set(KV_KEY, JSON.stringify({config: parseConfig(CONFIG)}))
+  const {fetchFn, seen} = backend()
+  const response = await handle(webhook({...PAYLOAD, context: 'ci/circleci: dummy_job'}), {...ENV, CONFIG_CACHE: kv}, {fetchFn})
+  assert.match(await response.text(), /^ignored: not a watched job/)
+  assert.deepEqual(seen, [])
+})
+
+test('the absence of a config is stored too, not just a config', async () => {
+  const kv = fakeKV()
+  const {fetchFn} = backend({config: null})
+  await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn})
+  assert.deepEqual(JSON.parse(kv.store.get(KV_KEY)), {config: null})
+})
+
+test('a failing KV never fails a delivery', async () => {
+  for (const [options, expected] of [[{getError: true}, 'get-error'], [{putError: true}, 'put-error']]) {
+    clearCache()
+    const {fetchFn} = backend()
+    const trace = {}
+    const response = await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: fakeKV(options)}, {fetchFn, trace})
+    assert.match(await response.text(), /^posted success/, expected)
+    assert.equal(trace.kv, expected)
+  }
 })

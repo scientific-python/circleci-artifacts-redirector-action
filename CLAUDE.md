@@ -156,8 +156,23 @@ CI never needs them and must never be given them.
   deploy workflow now rejects whitespace up front for the two it can see.
 - Token (50 min), config (10 min) and posted-status dedupe (5 min) are cached in
   an isolate-level `Map`. All best-effort: a cold isolate just refetches, and a
-  duplicate can slip through. Nothing is correctness-critical.
+  duplicate can slip through. Nothing is correctness-critical. **The Map
+  rarely hits in practice** (see "CPU is the limit that binds"), so the config
+  is also shared across isolates through the `CONFIG_CACHE` KV namespace for
+  `KV_CONFIG_TTL_S` (1 hour) — **including its absence**. A config added or
+  edited on the default branch can therefore take up to ~70 minutes to take
+  effect. Keys are versioned (`config:v1:`) so a rollback never misreads a
+  value; a KV failure is logged in the trace (`kv: get-error`/`put-error`) and
+  otherwise ignored. Without the binding (tests, a rolled-back version) the
+  Worker behaves exactly as before. Tokens and dedupe are deliberately *not*
+  in KV yet: that would put installation tokens at rest in the account.
+- The installation token is minted **lazily**: only to read the config on a
+  cache miss, or to post. A delivery the cached config rules out (no config
+  file, a job that is not watched) never pays for the RSA sign.
 - Repos with no config file are inert, so a stale installation posts nothing.
+  Org-wide installs make this common: `nipreps` has the App on (at least)
+  `nipreps/fmriprep`, which has no config. With KV such a delivery ends at one
+  KV read; before it, each cost a token mint plus a `.github/` listing.
 - **A failed delivery is lost — accepted.** GitHub never retries a webhook
   delivery on its own, so when the Worker 500s on a transient CircleCI/GitHub
   blip, that one status is never posted. A build emits several status events,
@@ -221,10 +236,12 @@ token above, which does not expire.
 to fix an outage, and it cannot help at all if the problem is that `master` does
 not build. Use it as step 2, never as step 1.
 
-Rollback is a no-op risk here: the restriction in Cloudflare's docs is about
-Durable Objects, R2, KV and queues changing between versions, and this Worker
-has no bindings at all (`wrangler deploy --dry-run` reports "No bindings
-found"). Secrets are not touched. Only recent versions are retained — the docs
+Rollback is a low risk here: the restriction in Cloudflare's docs is about
+Durable Objects, R2, KV and queues changing between versions. The one binding
+is the `CONFIG_CACHE` KV namespace, a pure cache with versioned keys
+(`config:v1:`), and versions from before it simply ignore it — so rolling back
+across it is safe. Bump the key version if the stored format ever changes.
+Secrets are not touched. Only recent versions are retained — the docs
 say the last 100, `wrangler versions list` shows the last 10.
 
 ### CPU is the limit that binds, not requests
@@ -241,10 +258,12 @@ of ~40,600 invocations was killed despite thousands over 10 ms.
 What that month established about the tail (all on one deployed version, so
 not a code change):
 
-- **It is a code path, not cold isolates.** p90 sits at ~8 ms in every
-  traffic band, busiest hours included, where isolates would be warm. The
-  cheap path (signature verify + parse, then an early return) is the p50; the
-  deliveries that go on to make subrequests are the ~8 ms ones.
+- **It is cold caches, not a slow code path.** (This first read "a code path,
+  not cold isolates", because p90 sits at ~8 ms in every traffic band, busiest
+  hours included. That inference was wrong: busy hours are *not* warm, because
+  Cloudflare spreads deliveries across many isolates. The tail below showed 13
+  isolates for 19 deliveries.) The deliveries that reach GitHub cost 5–13 ms
+  when the per-isolate token and config caches miss, and ~0 ms when they hit.
 - **Cloudflare's metered CPU runs well above local timings.** The cheap path is
   ~0.2 ms in Node but ~1.6 ms there, so local benchmarks rank stages correctly
   but do not predict the absolute number.
@@ -257,7 +276,9 @@ not a code change):
   structured record per delivery: `delivery`, `isolate` (a random id per
   isolate) and `served` (1 means a cold isolate), `bytes`, `repo`,
   `installation`, `context`, `state`, `token`/`config` (`hit` or `miss` on the
-  per-isolate caches; absent when the delivery stopped before them), `steps`
+  per-isolate caches; absent when the delivery stopped before them; `token`
+  is also absent when the cached config made it unnecessary), `kv` (`hit`,
+  `miss`, `get-error` or `put-error` on the shared config cache), `steps`
   (the core's `log` narration, strings only — thunks are dropped unevaluated
   by `keepSteps`), `status` and `result` (the response text). Workers Logs
   indexes these fields, but the record is a separate event from the
@@ -271,6 +292,14 @@ not a code change):
   `posted success` 13–16 ms. So the deliveries over the limit are the ones
   that reach GitHub, and at least one installation has no config file yet
   still pays a token mint and a config read on each cache miss.
+- **Second tail, with the structured record (10 min, 19 deliveries,
+  2026-10-27):** 13 distinct isolates, 11 deliveries on a cold one. Of the 8
+  that reached GitHub, 7 missed both the token and config caches (median 8 ms,
+  max 13 ms); the one that hit both cost 0 ms. Repos: `scipy/scipy`,
+  `braindecode/braindecode` (its `dummy_job` paid 9 ms to be ignored as not
+  watched), `nipreps/fmriprep` (no config). SciPy's `build_docs_dist` success
+  arrived twice on different isolates, so the per-isolate dedupe missed it.
+  This is what the KV config cache and lazy token mint above address.
 
 What actually costs CPU here, measured on a scikit-learn-sized listing:
 
