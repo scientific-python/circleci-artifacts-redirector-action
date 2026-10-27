@@ -257,13 +257,21 @@ test('normalizeConfig applies the same defaults as the action', () => {
   assert.deepEqual(normalizeConfig({'circleci-jobs': 'a, ,b '}).jobNames, ['a', 'b'])
 })
 
-test('the default entry point answers without touching the network', async () => {
+test('the default entry point answers without touching the network', async (t) => {
+  const logged = t.mock.method(console, 'log', () => {})
   // A bad signature is rejected before any fetch happens
   assert.equal((await worker.fetch(webhook(PAYLOAD, {secret: 'wrong'}), ENV)).status, 401)
 
   // An unusable private key throws while importing, i.e. still before any fetch
   const response = await worker.fetch(webhook(PAYLOAD), {...ENV, PRIVATE_KEY: 'not-a-key'})
   assert.equal(response.status, 500, 'failures surface to GitHub as a failed delivery')
+  assert.ok((await response.text()).length, 'logging leaves the body readable')
+
+  // Every delivery logs the path it took, which Workers Logs pairs with CPU time
+  const lines = logged.mock.calls.map((call) => call.arguments[0])
+  assert.equal(lines.length, 2)
+  assert.match(lines[0], / 401 bad signature$/)
+  assert.match(lines[1], / 500 \S/)
 })
 
 test('reuses the token and config across events in the same isolate', async () => {

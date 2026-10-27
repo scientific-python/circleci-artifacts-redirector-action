@@ -231,10 +231,32 @@ say the last 100, `wrangler versions list` shows the last 10.
 
 The free plan allows 100,000 requests/day but only **10 ms of CPU per
 invocation** (I/O does not count, so awaiting GitHub and CircleCI is free).
-Requests are a non-issue — measured traffic is well under 1% of the daily cap,
-with ~200x headroom — while the observed CPU p99 already sits near 10 ms. When
-a Worker consistently exceeds it, Cloudflare terminates the invocation with
-error 1102; occasional overruns are tolerated.
+Requests are a non-issue — about 1.3% of the daily cap on average and 2.5% on
+the peak day (2026-09-27 to 2026-10-27, ~40x headroom) — while CPU is not:
+p50 ~1.6 ms, but p90 ~8 ms, p99 12–16 ms and p99.9 ~17 ms over that month.
+When a Worker consistently exceeds it, Cloudflare terminates the invocation
+with error 1102; occasional overruns are tolerated, and in that month not one
+of ~40,600 invocations was killed despite thousands over 10 ms.
+
+What that month established about the tail (all on one deployed version, so
+not a code change):
+
+- **It is a code path, not cold isolates.** p90 sits at ~8 ms in every
+  traffic band, busiest hours included, where isolates would be warm. The
+  cheap path (signature verify + parse, then an early return) is the p50; the
+  deliveries that go on to make subrequests are the ~8 ms ones.
+- **Cloudflare's metered CPU runs well above local timings.** The cheap path is
+  ~0.2 ms in Node but ~1.6 ms there, so local benchmarks rank stages correctly
+  but do not predict the absolute number.
+- **The RSA mint is the largest piece of our own code on that path** — ~0.6 ms
+  warm in Node, against ~0.1 ms each for verify, parse, config read and the
+  artifact scan — and it is paid per installation per isolate.
+- Analytics cannot split CPU by path, and `wrangler tail` needs the deploy
+  token. So Workers Logs is on (`[observability]` in `wrangler.toml`): each
+  invocation record carries its CPU time, and the `fetch` handler logs one
+  line per delivery (`<delivery id> <status> <response text>`) naming the path
+  it took. Group CPU by that line in the dashboard's Observability tab.
+  Retention is 3 days on the free plan, so look within that window.
 
 What actually costs CPU here, measured on a scikit-learn-sized listing:
 
