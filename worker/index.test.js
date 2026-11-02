@@ -1,7 +1,7 @@
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import worker, { handle, keepSteps, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS, KV_CONFIG_TTL_S, KV_CONFIG_PREFIX } from './index.js'
+import worker, { handle, keepSteps, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS, KV_CONFIG_TTL_S, KV_CONFIG_PREFIX, KV_TOKEN_PREFIX, TOKEN_MARGIN_S, sealingKey, seal, unseal, expireBy, cached } from './index.js'
 import { parseConfig, normalizeConfig } from '../src/config.js'
 
 beforeEach(clearCache)
@@ -42,12 +42,12 @@ function webhook(payload, {event = 'status', secret = SECRET, method = 'POST'} =
 
 // Fake GitHub + CircleCI. Returns the requests it saw so tests can assert on
 // what would have been posted.
-function backend({config = CONFIG, names = [CANONICAL_CONFIG], artifacts = {items: [ARTIFACT]}, statusCode = 201} = {}) {
+function backend({config = CONFIG, names = [CANONICAL_CONFIG], artifacts = {items: [ARTIFACT]}, statusCode = 201, expiresAt} = {}) {
   const seen = []
   const fetchFn = async (url, options = {}) => {
     seen.push({url, method: options.method ?? 'GET', body: options.body})
     if (url.endsWith('/access_tokens')) {
-      return new Response(JSON.stringify({token: 'ghs_installation'}), {status: 201})
+      return new Response(JSON.stringify({token: 'ghs_installation', expires_at: expiresAt}), {status: 201})
     }
     if (url.includes(`/contents/${CONFIG_DIR}?`)) {
       if (config === null) {
@@ -194,11 +194,12 @@ test('mintToken signs a real RS256 JWT', async () => {
   let authorization
   const fetchFn = async (url, options) => {
     authorization = options.headers.authorization
-    return new Response(JSON.stringify({token: 'ghs_x'}), {status: 201})
+    return new Response(JSON.stringify({token: 'ghs_x', expires_at: '2026-11-02T13:00:00Z'}), {status: 201})
   }
-  const token = await mintToken({
+  const {token, expiresAt} = await mintToken({
     appId: '123', privateKey, installationId: 7, fetchFn, now: () => 1_000_000_000_000})
   assert.equal(token, 'ghs_x')
+  assert.equal(expiresAt, Date.parse('2026-11-02T13:00:00Z'))
 
   const [header, claims, signature] = authorization.replace('Bearer ', '').split('.')
   assert.deepEqual(JSON.parse(atob(header)), {alg: 'RS256', typ: 'JWT'})
@@ -474,12 +475,11 @@ function fakeKV({getError = false, putError = false} = {}) {
   const puts = []
   return {
     store, puts,
-    async get(key, type) {
-      assert.equal(type, 'json')
+    async get(key) {
       if (getError) {
         throw new Error('KV get failed')
       }
-      return store.has(key) ? JSON.parse(store.get(key)) : null
+      return store.get(key) ?? null
     },
     async put(key, value, options) {
       puts.push({key, value, options})
@@ -490,28 +490,49 @@ function fakeKV({getError = false, putError = false} = {}) {
     },
   }
 }
-const KV_KEY = `${KV_CONFIG_PREFIX}scientific-python/demo@main`
+const CONFIG_NAME_KV = `${KV_CONFIG_PREFIX}scientific-python/demo@main`
+const TOKEN_NAME_KV = `${KV_TOKEN_PREFIX}42`
+const HOUR_FROM_NOW = () => new Date(Date.now() + 3600_000).toISOString()
 
-test('a config shared through KV survives a cold isolate', async () => {
+// Put an entry in KV exactly as the Worker would
+async function plant(kv, name, value, expires = Date.now() + 3600_000) {
+  kv.store.set(name, await seal(await sealingKey(ENV.PRIVATE_KEY), name, {value, expires}))
+}
+
+test('sealed entries open only under their own name and key', async () => {
+  const key = await sealingKey(ENV.PRIVATE_KEY)
+  const sealed = await seal(key, 'a', {x: 1})
+  assert.deepEqual(await unseal(key, 'a', sealed), {x: 1})
+  assert.notEqual(await seal(key, 'a', {x: 1}), sealed, 'a fresh nonce every time')
+  await assert.rejects(unseal(key, 'b', sealed), 'not under another name')
+  await assert.rejects(unseal(await sealingKey('another key'), 'a', sealed), 'not under another key')
+  const {iv, data} = JSON.parse(sealed)
+  const flipped = (data[0] === 'A' ? 'B' : 'A') + data.slice(1)
+  await assert.rejects(unseal(key, 'a', JSON.stringify({iv, data: flipped})), 'not once tampered with')
+})
+
+test('a config shared through KV survives a cold isolate, sealed', async () => {
   const kv = fakeKV()
   const {fetchFn, seen} = backend()
   const first = {}
   await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace: first})
-  assert.equal(first.kv, 'miss')
-  assert.deepEqual(kv.puts.map((p) => [p.key, p.options.expirationTtl]), [[KV_KEY, KV_CONFIG_TTL_S]])
+  assert.equal(first.kvConfig, 'miss')
+  const put = kv.puts.find((p) => p.key === CONFIG_NAME_KV)
+  assert.equal(put.options.expirationTtl, KV_CONFIG_TTL_S)
+  assert.ok(!put.value.includes('Docs preview'), 'not stored in the clear')
 
   clearCache()   // a different isolate: the Map is empty, KV is not
   const before = seen.length
   const second = {}
   const response = await handle(webhook({...PAYLOAD, sha: 'cafe'}), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace: second})
   assert.match(await response.text(), /^posted success/)
-  assert.equal(second.kv, 'hit')
+  assert.equal(second.kvConfig, 'hit')
   assert.ok(!seen.slice(before).some((r) => r.url.includes('/contents/')), 'config not refetched')
 })
 
 test('a repo with no config ends at KV, with no token minted', async () => {
   const kv = fakeKV()
-  kv.store.set(KV_KEY, JSON.stringify({config: null}))
+  await plant(kv, CONFIG_NAME_KV, null)
   const {fetchFn, seen} = backend()
   const trace = {}
   const response = await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace})
@@ -522,7 +543,7 @@ test('a repo with no config ends at KV, with no token minted', async () => {
 
 test('a job the cached config does not watch costs no token either', async () => {
   const kv = fakeKV()
-  kv.store.set(KV_KEY, JSON.stringify({config: parseConfig(CONFIG)}))
+  await plant(kv, CONFIG_NAME_KV, parseConfig(CONFIG))
   const {fetchFn, seen} = backend()
   const response = await handle(webhook({...PAYLOAD, context: 'ci/circleci: dummy_job'}), {...ENV, CONFIG_CACHE: kv}, {fetchFn})
   assert.match(await response.text(), /^ignored: not a watched job/)
@@ -533,16 +554,96 @@ test('the absence of a config is stored too, not just a config', async () => {
   const kv = fakeKV()
   const {fetchFn} = backend({config: null})
   await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn})
-  assert.deepEqual(JSON.parse(kv.store.get(KV_KEY)), {config: null})
+  const entry = await unseal(await sealingKey(ENV.PRIVATE_KEY), CONFIG_NAME_KV, kv.store.get(CONFIG_NAME_KV))
+  assert.equal(entry.value, null)
+})
+
+test('a planted config is ignored, not obeyed', async () => {
+  // What someone able to write KV but not read the Worker's secrets could try:
+  // an unsealed entry, and a sealed one moved here from another repo's name
+  const evil = {...parseConfig(CONFIG), domain: 'evil.example'}
+  const other = `${KV_CONFIG_PREFIX}someone/else@main`
+  const sealedElsewhere = fakeKV()
+  await plant(sealedElsewhere, other, evil)
+  for (const stored of [JSON.stringify({config: evil}), sealedElsewhere.store.get(other)]) {
+    clearCache()
+    const kv = fakeKV()
+    kv.store.set(CONFIG_NAME_KV, stored)
+    const {fetchFn} = backend()
+    const trace = {}
+    const text = await (await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace})).text()
+    assert.equal(trace.kvConfig, 'unreadable')
+    assert.match(text, /^posted success: https:\/\/output\.circle-artifacts\.com\//, 'the real config, read from GitHub')
+  }
+})
+
+test('a token shared through KV saves the mint on a cold isolate, and is never in the clear', async () => {
+  const kv = fakeKV()
+  const {fetchFn, seen} = backend({expiresAt: HOUR_FROM_NOW()})
+  const first = {}
+  await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace: first})
+  assert.equal(first.kvToken, 'miss')
+  const put = kv.puts.find((p) => p.key === TOKEN_NAME_KV)
+  assert.ok(Math.abs(put.options.expirationTtl - (3600 - TOKEN_MARGIN_S)) <= 2, 'stored until the margin before expiry')
+  assert.ok(![...kv.store.values()].some((v) => v.includes('ghs_installation')), 'sealed in KV')
+
+  clearCache()
+  const before = seen.length
+  const second = {}
+  const response = await handle(webhook({...PAYLOAD, sha: 'cafe'}), {...ENV, CONFIG_CACHE: kv}, {fetchFn, trace: second})
+  assert.match(await response.text(), /^posted success/)
+  assert.equal(second.kvToken, 'hit')
+  const after = seen.slice(before)
+  assert.ok(!after.some((r) => r.url.endsWith('/access_tokens')), 'no mint')
+  assert.ok(after.some((r) => r.url.includes('/statuses/')), 'still posted')
+  assert.ok(!JSON.stringify([first, second]).includes('ghs_'), 'never in the trace, so never logged')
+})
+
+test('a token from KV is not kept in memory past its own expiry', async () => {
+  let clock = Date.now()
+  const now = () => clock
+  const kv = fakeKV()
+  await plant(kv, TOKEN_NAME_KV, 'ghs_from_kv', clock + 60_000)   // a minute of life left
+  await plant(kv, CONFIG_NAME_KV, parseConfig(CONFIG))
+  const {fetchFn, seen} = backend({expiresAt: HOUR_FROM_NOW()})
+  const trace = {}
+  await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn, now, trace})
+  assert.equal(trace.kvToken, 'hit')
+  assert.ok(!seen.some((r) => r.url.endsWith('/access_tokens')))
+
+  clock += 61_000   // well inside TOKEN_TTL_MS, but past what that token had left
+  await handle(webhook({...PAYLOAD, sha: 'cafe'}), {...ENV, CONFIG_CACHE: kv}, {fetchFn, now})
+  assert.ok(seen.some((r) => r.url.endsWith('/access_tokens')), 'minted afresh')
+})
+
+test('a token with no stated expiry is used but not shared', async () => {
+  const kv = fakeKV()
+  const {fetchFn} = backend()   // no expires_at
+  const response = await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: kv}, {fetchFn})
+  assert.match(await response.text(), /^posted success/)
+  assert.ok(!kv.store.has(TOKEN_NAME_KV))
+})
+
+test('expireBy only ever shortens a cached entry', async () => {
+  let clock = 0
+  const now = () => clock
+  cached('k', 1000, async () => 'v', now)
+  expireBy('k', 5000)
+  expireBy('missing', 1)
+  clock = 999
+  assert.equal(await cached('k', 1000, async () => 'new', now), 'v', 'not lengthened')
+  expireBy('k', 500)
+  assert.equal(await cached('k', 1000, async () => 'new', now), 'new', 'shortened')
 })
 
 test('a failing KV never fails a delivery', async () => {
-  for (const [options, expected] of [[{getError: true}, 'get-error'], [{putError: true}, 'put-error']]) {
+  for (const [options, expected] of [[{getError: true}, 'unreadable'], [{putError: true}, 'put-error']]) {
     clearCache()
-    const {fetchFn} = backend()
+    const {fetchFn} = backend({expiresAt: HOUR_FROM_NOW()})
     const trace = {}
     const response = await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: fakeKV(options)}, {fetchFn, trace})
     assert.match(await response.text(), /^posted success/, expected)
-    assert.equal(trace.kv, expected)
+    assert.equal(trace.kvConfig, expected)
+    assert.equal(trace.kvToken, expected)
   }
 })

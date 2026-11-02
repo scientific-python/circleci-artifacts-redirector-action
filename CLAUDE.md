@@ -157,15 +157,32 @@ CI never needs them and must never be given them.
 - Token (50 min), config (10 min) and posted-status dedupe (5 min) are cached in
   an isolate-level `Map`. All best-effort: a cold isolate just refetches, and a
   duplicate can slip through. Nothing is correctness-critical. **The Map
-  rarely hits in practice** (see "CPU is the limit that binds"), so the config
-  is also shared across isolates through the `CONFIG_CACHE` KV namespace for
-  `KV_CONFIG_TTL_S` (1 hour) — **including its absence**. A config added or
-  edited on the default branch can therefore take up to ~70 minutes to take
-  effect. Keys are versioned (`config:v1:`) so a rollback never misreads a
-  value; a KV failure is logged in the trace (`kv: get-error`/`put-error`) and
+  rarely hits in practice** (see "CPU is the limit that binds"), so the
+  config and the installation token are also shared across isolates through
+  the `CONFIG_CACHE` KV namespace (the name predates the tokens). The config,
+  **including its absence**, is kept for `KV_CONFIG_TTL_S` (1 hour), so a
+  config added or edited on the default branch can take up to ~70 minutes to
+  take effect. A token is kept until `TOKEN_MARGIN_S` (10 min) before GitHub's
+  `expires_at`, and the per-isolate `Map` entry for a token read from KV is
+  cut to that same expiry (`expireBy`), since a token from KV may have far
+  less than 50 minutes left. Keys are versioned (`config:v2:`, `token:v1:`) so
+  a rollback never misreads a value; a KV failure is logged in the trace and
   otherwise ignored. Without the binding (tests, a rolled-back version) the
-  Worker behaves exactly as before. Tokens and dedupe are deliberately *not*
-  in KV yet: that would put installation tokens at rest in the account.
+  Worker behaves exactly as before. The posted-status dedupe is still
+  per-isolate only.
+- **Every KV entry is sealed** with AES-GCM under a key derived (HKDF) from
+  `PRIVATE_KEY`, with the entry's name as associated data. So a token is
+  useless to anything that can read KV but not the Worker's secrets, and a
+  planted or moved entry fails to open and reads as a miss. That second half
+  matters for the config too: an unsealed config cache would let anyone with
+  KV write point `domain:` at their own host, the attack that reading config
+  from the default branch exists to stop. Anyone holding `PRIVATE_KEY` can
+  mint tokens directly, so the derived key exposes nothing new; likewise
+  anyone who can deploy the Worker (account admins, the deploy token) could
+  already read its secrets, so sharing tokens grants them nothing. Sealing
+  costs ~0.3 ms per cold isolate (key derivation plus one open) against ~2 ms
+  for the RSA mint it saves, both measured warm in Node. Never put a token in
+  the trace: a test asserts the log record cannot contain one.
 - The installation token is minted **lazily**: only to read the config on a
   cache miss, or to post. A delivery the cached config rules out (no config
   file, a job that is not watched) never pays for the RSA sign.
@@ -239,8 +256,9 @@ not build. Use it as step 2, never as step 1.
 Rollback is a low risk here: the restriction in Cloudflare's docs is about
 Durable Objects, R2, KV and queues changing between versions. The one binding
 is the `CONFIG_CACHE` KV namespace, a pure cache with versioned keys
-(`config:v1:`), and versions from before it simply ignore it — so rolling back
-across it is safe. Bump the key version if the stored format ever changes.
+(`config:v2:`, `token:v1:`), and versions from before it simply ignore it — so
+rolling back across it is safe. Bump the key version if the stored format ever
+changes, as `config:v1:` (unsealed) to `config:v2:` (sealed) did.
 Secrets are not touched. Only recent versions are retained — the docs
 say the last 100, `wrangler versions list` shows the last 10.
 
@@ -277,8 +295,10 @@ not a code change):
   isolate) and `served` (1 means a cold isolate), `bytes`, `repo`,
   `installation`, `context`, `state`, `token`/`config` (`hit` or `miss` on the
   per-isolate caches; absent when the delivery stopped before them; `token`
-  is also absent when the cached config made it unnecessary), `kv` (`hit`,
-  `miss`, `get-error` or `put-error` on the shared config cache), `steps`
+  is also absent when the cached config made it unnecessary), `kvConfig` and
+  `kvToken` (`hit`, `miss`, `unreadable` for a failed get or an entry that
+  would not open, or `put-error`, on the KV caches; the field was `kv` for the
+  config alone before tokens were shared), `steps`
   (the core's `log` narration, strings only — thunks are dropped unevaluated
   by `keepSteps`), `status` and `result` (the response text). Workers Logs
   indexes these fields, but the record is a separate event from the
@@ -300,6 +320,15 @@ not a code change):
   watched), `nipreps/fmriprep` (no config). SciPy's `build_docs_dist` success
   arrived twice on different isolates, so the per-isolate dedupe missed it.
   This is what the KV config cache and lazy token mint above address.
+- **Three days of Workers Logs with the KV config cache (2,966 deliveries,
+  2026-10-30 to 2026-11-02, all `ok`):** p50 1 ms, p90 7 ms, p99 13 ms, max
+  22 ms; 83 (2.8%) over 10 ms. 1,783 isolates for 2,966 deliveries. Ignored
+  deliveries dropped to p50 2 ms (no config: was ~5.5; unwatched: was ~8.5),
+  409 of them never minting a token, and subrequests per request halved. But
+  **82 of the 83 over 10 ms minted a token** — minted with a KV config hit p50
+  7 ms, against 3 ms with a cached token — so the RSA sign alone is ~4–5 ms on
+  Cloudflare. KV config miss rate ~26% (many low-traffic repos). `sympy/sympy`
+  (newly on the App) was 40 of the 83. This is what sharing tokens addresses.
 
 What actually costs CPU here, measured on a scikit-learn-sized listing:
 

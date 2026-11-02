@@ -35,13 +35,37 @@ export const DEDUPE_TTL_MS = 5 * 60 * 1000
 // repo with no config (an org-wide install, say) cheap: its deliveries end at
 // a KV read, with no token minted at all. The cost is that adding or editing
 // a config can take up to KV_CONFIG_TTL_S (plus CONFIG_TTL_MS) to take effect.
-// The key carries a format version so that a rollback never misreads a value.
+// Installation tokens are shared the same way: minting one is an RSA sign that
+// costs ~4-5 ms on Cloudflare, and it was behind nearly every delivery still
+// over the limit once the config was shared. A token is stored until
+// TOKEN_MARGIN_S before GitHub says it expires, so a stale read near the end of
+// its life (KV can lag by up to a minute) still leaves it valid for minutes.
+//
+// Every KV entry is sealed with AES-GCM under a key derived from PRIVATE_KEY,
+// with the entry's own name as associated data. That makes a token useless to
+// anything that can read KV but not the Worker's secrets, and makes a planted
+// or swapped entry (a config pointing `domain` at someone's host, one
+// installation's token under another's name) fail to open, which reads as a
+// miss. Anyone holding PRIVATE_KEY can mint tokens directly anyway, so the
+// derived key exposes nothing new. Keys carry a format version so a rollback
+// never misreads a value; v1 config entries were unsealed.
 export const KV_CONFIG_TTL_S = 60 * 60
-export const KV_CONFIG_PREFIX = 'config:v1:'
+export const KV_CONFIG_PREFIX = 'config:v2:'
+export const KV_TOKEN_PREFIX = 'token:v1:'
+export const TOKEN_MARGIN_S = 10 * 60
 const cache = new Map()
 
 export function clearCache() {
   cache.clear()
+}
+
+// Bring a cached entry's expiry forward to `at` (ms) if that is sooner, for a
+// value whose real lifetime is only known once it has been produced.
+export function expireBy(key, at) {
+  const hit = cache.get(key)
+  if (hit && at < hit.expires) {
+    hit.expires = at
+  }
 }
 
 // Memoize a promise, evicting it if it rejects so that a blip is not cached
@@ -113,7 +137,8 @@ function base64url(bytes) {
 }
 
 // Mint an installation access token: sign a JWT with the App key, then trade it
-// in for a token scoped to the repo the event came from.
+// in for a token covering the installation the event came from. Returns the
+// token and when GitHub says it expires (ms since the epoch, NaN if unsaid).
 export async function mintToken({appId, privateKey, installationId, fetchFn = globalThis.fetch, now = Date.now}) {
   if (privateKey !== rsaPem) {
     rsaPem = privateKey
@@ -143,7 +168,8 @@ export async function mintToken({appId, privateKey, installationId, fetchFn = gl
   if (!response.ok) {
     throw new Error(`Could not mint an installation token: ${response.status}`)
   }
-  return (await response.json()).token
+  const {token, expires_at: expiresAt} = await response.json()
+  return {token, expiresAt: Date.parse(expiresAt)}
 }
 
 // Read the config from the *default branch*, never the PR head: otherwise a
@@ -187,31 +213,86 @@ function traced(trace, field, key, ttl, produce, now) {
   }, now)
 }
 
-// Read the config through KV when it is bound, falling back to `read` (the
-// GitHub API) on a miss and storing what it returns -- including null, which
-// is the whole point for a repo with no config. KV is best-effort like every
-// other cache here: a failed get or put (the free plan allows 1,000 writes a
-// day) is recorded in the trace and otherwise ignored, never failing the
-// delivery.
-export async function sharedConfig(kv, key, read, trace) {
+function toBase64(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+}
+
+function fromBase64(text) {
+  return Uint8Array.from(atob(text), (c) => c.charCodeAt(0))
+}
+
+// The AES-GCM key KV entries are sealed with, derived once per isolate (and per
+// PRIVATE_KEY, so a rotated key or a test never sees a stale one).
+let sealPem, sealKey
+export function sealingKey(privateKey) {
+  if (privateKey !== sealPem) {
+    sealPem = privateKey
+    sealKey = (async () => {
+      const base = await crypto.subtle.importKey('raw', ENC.encode(privateKey), 'HKDF', false, ['deriveKey'])
+      return crypto.subtle.deriveKey(
+        {name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(), info: ENC.encode('circleci-artifacts-redirector KV seal v1')},
+        base, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt'])
+    })()
+  }
+  return sealKey
+}
+
+// A fresh random nonce per write, and the entry's name as associated data so
+// an entry only opens under the name it was written for.
+export async function seal(key, name, value) {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const data = await crypto.subtle.encrypt(
+    {name: 'AES-GCM', iv, additionalData: ENC.encode(name)}, key, ENC.encode(JSON.stringify(value)))
+  return JSON.stringify({iv: toBase64(iv), data: toBase64(data)})
+}
+
+// Throws on anything that was not sealed by us under this name.
+export async function unseal(key, name, stored) {
+  const {iv, data} = JSON.parse(stored)
+  const plain = await crypto.subtle.decrypt(
+    {name: 'AES-GCM', iv: fromBase64(iv), additionalData: ENC.encode(name)}, key, fromBase64(data))
+  return JSON.parse(new TextDecoder().decode(plain))
+}
+
+// Read `name` through KV when it is bound, falling back to `read` on a miss and
+// storing what it returns, including null (which is the whole point for a repo
+// with no config). `read` resolves to {value, ttl}, ttl in seconds; a ttl under
+// KV's 60 s minimum means "use it, but do not store it". Resolves to {value,
+// expires}, expires in ms, so a caller can keep a shorter-lived value (a token
+// read near the end of its life) no longer than it lasts. KV is best-effort like
+// every other cache here: a failed get or put (the free plan allows 1,000
+// writes a day), or an entry that does not open, is recorded in trace[field]
+// and otherwise ignored, never failing the delivery.
+export async function shared({kv, privateKey, name, read, trace, field, now = Date.now}) {
   if (!kv) {
-    return read()
+    const {value, ttl} = await read()
+    return {value, expires: now() + ttl * 1000}
   }
-  const stored = await kv.get(KV_CONFIG_PREFIX + key, 'json').catch(() => {
-    trace.kv = 'get-error'
-    return null
-  })
-  if (stored !== null) {
-    trace.kv = 'hit'
-    return stored.config
+  const key = sealingKey(privateKey)
+  let entry = null
+  try {
+    const stored = await kv.get(name)
+    if (stored !== null) {
+      entry = await unseal(await key, name, stored)
+    }
+  } catch {
+    trace[field] = 'unreadable'
   }
-  trace.kv ??= 'miss'
-  const config = await read()
-  await kv.put(KV_CONFIG_PREFIX + key, JSON.stringify({config}), {expirationTtl: KV_CONFIG_TTL_S})
-    .catch(() => {
-      trace.kv = 'put-error'
-    })
-  return config
+  if (entry !== null && entry.expires > now()) {
+    trace[field] = 'hit'
+    return entry
+  }
+  trace[field] ??= 'miss'
+  const {value, ttl} = await read()
+  const fresh = {value, expires: now() + ttl * 1000}
+  if (ttl >= 60) {
+    try {
+      await kv.put(name, await seal(await key, name, fresh), {expirationTtl: ttl})
+    } catch {
+      trace[field] = 'put-error'
+    }
+  }
+  return fresh
 }
 
 // `trace` collects facts about this delivery for the fetch handler to log;
@@ -252,16 +333,31 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   // or posting -- so a delivery the cached config rules out (no config file,
   // a job that is not watched) never pays for the RSA sign
   let minted
-  const token = () => minted ??= traced(trace, 'token', `token:${payload.installation.id}`, TOKEN_TTL_MS, () => mintToken({
-    appId: env.APP_ID,
-    privateKey: env.PRIVATE_KEY,
-    installationId: payload.installation.id,
-    fetchFn,
-  }), now)
+  const kv = {kv: env.CONFIG_CACHE, privateKey: env.PRIVATE_KEY, trace, now}
+  const tokenKey = `token:${payload.installation.id}`
+  const token = () => minted ??= traced(trace, 'token', tokenKey, TOKEN_TTL_MS, async () => {
+    const {value, expires} = await shared({
+      ...kv, name: `${KV_TOKEN_PREFIX}${payload.installation.id}`, field: 'kvToken',
+      read: async () => {
+        const {token, expiresAt} = await mintToken({
+          appId: env.APP_ID,
+          privateKey: env.PRIVATE_KEY,
+          installationId: payload.installation.id,
+          fetchFn,
+        })
+        return {value: token, ttl: Math.floor((expiresAt - now()) / 1000) - TOKEN_MARGIN_S}
+      },
+    })
+    // A token from KV may have far less than TOKEN_TTL_MS left, and posting
+    // with an expired one fails the delivery
+    expireBy(tokenKey, expires)
+    return value
+  }, now)
   const configKey = `${repo.full_name}@${repo.default_branch}`
-  const raw = await traced(
-    trace, 'config', `config:${configKey}`, CONFIG_TTL_MS,
-    () => sharedConfig(env.CONFIG_CACHE, configKey, async () => readConfig(fetchFn, repo, await token()), trace), now)
+  const raw = await traced(trace, 'config', `config:${configKey}`, CONFIG_TTL_MS, () => shared({
+    ...kv, name: `${KV_CONFIG_PREFIX}${configKey}`, field: 'kvConfig',
+    read: async () => ({value: await readConfig(fetchFn, repo, await token()), ttl: KV_CONFIG_TTL_S}),
+  }).then(({value}) => value), now)
   if (raw === null) {
     return new Response(`ignored: no ${CONFIG_DIR}/${CANONICAL_CONFIG}`, {status: 200})
   }
