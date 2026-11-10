@@ -130,6 +130,20 @@ export async function firstArtifactUrl(fetchFn, url, options) {
   }
 }
 
+// The IDs a workflow-style target_url carries: the segment after `workflow(s)`
+// and, when present, the one after `job(s)`. Read by name rather than by
+// position, because CircleCI keeps adding segments: since 2026-11-09 the URL
+// is .../workflow/<workflow-id>/job/<job-id>, and taking the last segment as
+// the workflow ID made every such delivery fail with "Workflow not found".
+export function workflowIds(target) {
+  const parts = new URL(target).pathname.split('/')
+  const after = (names) => {
+    const at = parts.findIndex((part) => names.includes(part))
+    return at === -1 ? undefined : parts[at + 1]
+  }
+  return {workflowId: after(['workflow', 'workflows']), jobId: after(['job', 'jobs'])}
+}
+
 // Work out the artifacts endpoint for a status target_url, which comes in two
 // flavours depending on how the project is connected to GitHub.
 export async function artifactsUrlFor(target, jobNames, fetchFn, log) {
@@ -137,14 +151,17 @@ export async function artifactsUrlFor(target, jobNames, fetchFn, log) {
     // ───── New GitHub‑App URL ───────────────────────────────────────────
     // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
     // OR
-    // .../workflow/<workflow-id>
-    const workflowId = target.split('/').at(-1)
+    // .../workflow/<workflow-id>[/job/<job-id>]
+    const {workflowId, jobId} = workflowIds(target)
     log(`workflow: ${workflowId}`)
     const jobs = await fetchJson(fetchFn, `https://circleci.com/api/v2/workflow/${workflowId}/job`)
     if (!jobs.items.length) {
       throw new Error(`No jobs returned for workflow ${workflowId}`)
     }
-    const job = pickJob(jobs.items, jobNames)
+    // A URL that names its job is the status of exactly that job, so use it
+    // rather than guessing from circleci-jobs; fall back if it is not listed
+    const named = jobs.items.find((item) => jobId != null && (item.id === jobId || String(item.job_number) === jobId))
+    const job = named ?? pickJob(jobs.items, jobNames)
     log(`Using job ${job.name} of ${jobs.items.map((item) => item.name).join(', ')}`)
     return `https://circleci.com/api/v2/project/${job.project_slug}/${job.job_number}/artifacts`
   }

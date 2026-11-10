@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { debug, run } from './index.js'
-import { pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson, resolveStatus } from './src/core.js'
+import { pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson, resolveStatus, workflowIds } from './src/core.js'
 import { normalizeConfig } from './src/config.js'
 
 const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain', 'post-pending', 'no-artifact-state']
@@ -126,6 +126,47 @@ test('workflow URL selects the matching job', async () => {
     payload: {context: 'ci/circleci: docs', target_url: 'https://app.circleci.com/pipelines/circleci/1/2/3/workflows/wf-123'},
     bodies: [{items: jobs}, {items: [ARTIFACT]}],
   })
+  assert.equal(requests[1].url, 'https://circleci.com/api/v2/project/circleci/1/2/8/artifacts')
+})
+
+test('workflow URL naming its job uses that job (CircleCI, 2026-11-09 on)', async () => {
+  // The shape CircleCI sends now: the workflow ID is no longer the last
+  // segment. Reading it from the end asked for workflow <job-id>, a 404.
+  const jobs = [
+    {id: 'job-setup', name: 'setup_env', project_slug: 'gh/o/r', job_number: 10504},
+    {id: 'job-mne', name: 'build_docs_mne', project_slug: 'gh/o/r', job_number: 10505},
+    {id: 'job-docs', name: 'build_docs', project_slug: 'gh/o/r', job_number: 10509},
+  ]
+  const {requests} = await runAction({
+    // build_docs_mne comes first in the workflow and is watched too, so
+    // guessing by name would pick it
+    inputs: {'circleci-jobs': 'build_docs_mne,build_docs'},
+    payload: {context: 'ci/circleci: build_docs', target_url: 'https://app.circleci.com/workflow/wf-123/job/job-docs'},
+    bodies: [{items: jobs}, {items: [ARTIFACT]}],
+  })
+  assert.deepEqual(requests.map(r => r.url), [
+    'https://circleci.com/api/v2/workflow/wf-123/job',
+    'https://circleci.com/api/v2/project/gh/o/r/10509/artifacts',
+  ])
+})
+
+test('workflowIds reads IDs by name, not position', () => {
+  assert.deepEqual(workflowIds('https://app.circleci.com/workflow/wf/job/jb'), {workflowId: 'wf', jobId: 'jb'})
+  assert.deepEqual(workflowIds('https://app.circleci.com/workflow/wf'), {workflowId: 'wf', jobId: undefined})
+  assert.deepEqual(workflowIds('https://app.circleci.com/pipelines/circleci/1/2/3/workflows/wf/jobs/42'), {workflowId: 'wf', jobId: '42'})
+})
+
+test('workflow URL naming an unlisted job falls back to circleci-jobs', async () => {
+  const jobs = [
+    {id: 'a', name: 'lint', project_slug: 'circleci/1/2', job_number: 7},
+    {id: 'b', name: 'docs', project_slug: 'circleci/1/2', job_number: 8},
+  ]
+  const {requests} = await runAction({
+    inputs: {'circleci-jobs': 'docs'},
+    payload: {context: 'ci/circleci: docs', target_url: 'https://app.circleci.com/pipelines/circleci/1/2/3/workflows/wf-123/jobs/99'},
+    bodies: [{items: jobs}, {items: [ARTIFACT]}],
+  })
+  assert.equal(requests[0].url, 'https://circleci.com/api/v2/workflow/wf-123/job')
   assert.equal(requests[1].url, 'https://circleci.com/api/v2/project/circleci/1/2/8/artifacts')
 })
 
