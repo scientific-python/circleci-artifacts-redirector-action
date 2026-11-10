@@ -17,6 +17,7 @@ GitHub commit status:
 | `dist/index.js` | the bundle the action actually runs; **committed**, built by `ncc` |
 | `tools/cf-usage.py` | Cloudflare usage report for the deployed Worker (stdlib only) |
 | `tools/diagnose-pr.py` | why a fork PR got no CircleCI status; public APIs, stdlib only |
+| `tools/redeliver.mjs` | redeliver the App's failed `status` deliveries; needs the App key, run locally, no deps |
 
 Keep logic in `src/`. Anything added to only one front end will drift; that is
 the whole reason the split exists.
@@ -52,6 +53,7 @@ pre-commit run --all-files       # yamllint + eslint, as CI runs them
 npx wrangler deploy              # manual deploy; normally CI does this, see below
 tools/cf-usage.py [days]         # deployed Worker usage vs the free-tier limits
 tools/diagnose-pr.py <org>/<repo> <PR#>   # why a fork PR has no CircleCI status
+tools/redeliver.mjs --app-id <ID> --key <pem> [--since <date>] [--apply]   # resend failed App deliveries
 ```
 
 CI enforces 100% coverage. New code needs tests, or `/* node:coverage
@@ -209,8 +211,16 @@ CI never needs them and must never be given them.
   delivery on its own, so when the Worker 500s on a transient CircleCI/GitHub
   blip, that one status is never posted. A build emits several status events,
   so the exposure is small; the "fix" (a cron job calling the App's redeliver
-  API) would hand App credentials to CI, which we deliberately never do. Manual
-  redelivery from Recent Deliveries covers the rare case that matters.
+  API) would hand App credentials to CI, which we deliberately never do.
+  **When a Worker bug drops many, run `tools/redeliver.mjs` locally** once the
+  fix is deployed: dry run first, then `--apply`. It picks failed `status`
+  deliveries with no successful attempt, one per (repo, sha, context, state),
+  so reruns and CircleCI's duplicates are never resent. GitHub keeps
+  deliveries ~3 days, so do it promptly. First used 2026-11-10 after the
+  `target_url` bug above: 100 failures → 63 redelivered → all posted or
+  correctly skipped. Delivery IDs exceed 2^53, so the script quotes them
+  before `JSON.parse`; a rounded ID 404s. One-off cases can still use
+  Recent Deliveries → Redeliver.
 - The config file is found by **listing `.github/` and matching
   `CONFIG_NAME`** (`circle(ci)?[-_]artifacts.ya?ml`) rather than fetching one
   fixed path: people migrate by `git mv`-ing their workflow, which is called
