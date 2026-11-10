@@ -134,6 +134,15 @@ Things that cost real debugging time. Do not undo these.
   the fork build also errors at config-parse time (an org-settings orb
   restriction, say), so the contributor sees nothing anywhere and there is
   nothing to forward even in principle.
+- **Read IDs out of a CircleCI `target_url` by name, never by position.** On
+  2026-11-09 CircleCI started sending `app.circleci.com/workflow/<workflow-id>/job/<job-id>`,
+  and code that took the last segment as the workflow ID asked for workflow
+  `<job-id>`, got `404 Workflow not found`, and posted nothing — for App and
+  action alike, since it is in `src/core.js`. It was caught only because the
+  Worker's log records carry the `result` of every delivery; the 500s were
+  ~40% of watched-job deliveries by the next day. `workflowIds` now finds the
+  segments after `workflow(s)` and `job(s)`, and a URL that names its job uses
+  that exact job rather than guessing from `circleci-jobs`.
 - **Never suggest installing the CircleCI GitHub App as a fix for forked PRs**
   — App pipelines are *never* built on forks, so it makes this strictly worse.
   The OAuth integration is the one that supports them.
