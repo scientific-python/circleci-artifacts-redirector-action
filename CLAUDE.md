@@ -74,6 +74,12 @@ disable */` with a reason (see the entry-point guard in `index.js`).
   poisoned release is likely yanked before we ever see it.
 - **`.pre-commit-config.yaml` pins ESLint separately from `package.json`** and
   dependabot only updates the latter. Bump both together.
+- **Releases move `v1` automatically.** `release-tags.yml` points the major
+  tag at each published `vN.x.y` that is the newest in its line, so `@v1`
+  users get fixes; it never moves backwards and skips pre-releases. There is
+  deliberately no floating minor tag (`v1.3`). To move it by hand, the
+  `upstream` HTTPS remote has no push credentials here: use
+  `gh api -X PATCH repos/<repo>/git/refs/tags/v1 -f sha=<commit> -F force=true`.
 - Style-only commits go in `.git-blame-ignore-revs`.
 - Node version comes from `.nvmrc` (CircleCI orb and `setup-node` both read it).
 

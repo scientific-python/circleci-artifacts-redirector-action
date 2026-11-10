@@ -1,0 +1,60 @@
+# Move the floating major-version tag (v1, ...) to each new release, so that
+# `uses: scientific-python/circleci-artifacts-redirector-action@v1` picks it
+# up. This is the usual GitHub Actions convention, and it was a manual step
+# that was easy to forget: v1 sat on v1.3.1 after v1.3.2 shipped a fix for
+# CircleCI's new status URLs, which every @v1 user needed.
+#
+# The major tag only ever moves forward: a release is applied only if it is
+# the newest vN.x.y, so a patch to an older line (v1.2.5 after v1.3.2) never
+# drags v1 backwards. Pre-releases and tags not shaped vN.x.y are skipped.
+# There is deliberately no v1.3-style minor tag; only the major one floats.
+name: Release tags
+on:  # yamllint disable-line rule:truthy
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  major:
+    name: Move the major-version tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.repository == 'scientific-python/circleci-artifacts-redirector-action'
+      && !github.event.release.prerelease
+    permissions:
+      contents: write  # to move refs/tags/vN; nothing else here writes
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      # Through the environment, never interpolated into the script, so a
+      # tag name cannot inject shell
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Point vN at this release if it is the newest vN.x.y
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::notice::$TAG is not shaped vN.x.y; leaving major tags alone."
+            exit 0
+          fi
+          major="v${BASH_REMATCH[1]}"
+          # The trailing dot keeps v1 from matching v10, v11, ...
+          newest=$(gh api --paginate "repos/$REPO/git/matching-refs/tags/$major." --jq '.[].ref' \
+            | sed 's|^refs/tags/||' | grep -E "^$major\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
+          if [ "$newest" != "$TAG" ]; then
+            echo "::notice::$TAG is not the newest $major release ($newest is); leaving $major alone."
+            exit 0
+          fi
+          # The commit, not the tag object, so an annotated release tag works too
+          sha=$(gh api "repos/$REPO/commits/$TAG" --jq .sha)
+          if gh api "repos/$REPO/git/ref/tags/$major" > /dev/null 2>&1; then
+            old=$(gh api "repos/$REPO/git/ref/tags/$major" --jq .object.sha)
+            gh api -X PATCH "repos/$REPO/git/refs/tags/$major" -f sha="$sha" -F force=true > /dev/null
+            echo "::notice::Moved $major from ${old:0:10} to $TAG (${sha:0:10})."
+          else
+            gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$major" -f sha="$sha" > /dev/null
+            echo "::notice::Created $major at $TAG (${sha:0:10})."
+          fi
