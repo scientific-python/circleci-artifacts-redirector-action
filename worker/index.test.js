@@ -1,7 +1,7 @@
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import worker, { handle, keepSteps, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS, KV_CONFIG_TTL_S, KV_CONFIG_PREFIX, KV_TOKEN_PREFIX, TOKEN_MARGIN_S, sealingKey, seal, unseal, expireBy, cached } from './index.js'
+import worker, { handle, keepSteps, verifySignature, mintToken, readConfig, clearCache, CONFIG_DIR, CANONICAL_CONFIG, CONFIG_NAME, TOKEN_TTL_MS, CONFIG_TTL_MS, DEDUPE_TTL_MS, KV_CONFIG_TTL_S, KV_CONFIG_PREFIX, KV_TOKEN_PREFIX, TOKEN_MARGIN_S, timed, sealingKey, seal, unseal, expireBy, cached } from './index.js'
 import { parseConfig, normalizeConfig } from '../src/config.js'
 
 beforeEach(clearCache)
@@ -292,6 +292,7 @@ test('the log record names the delivery and the steps taken', async (t) => {
   assert.equal(record.delivery, 'abc-123')
   assert.match(record.result, /^posted success: /)
   assert.ok(record.steps.some((step) => step.startsWith('First artifact: ')), 'core narration kept')
+  assert.ok(record.waits.some((wait) => wait.startsWith('POST api.github.com/repos/')), 'subrequests timed')
 })
 
 test('keepSteps keeps strings and never evaluates a thunk', () => {
@@ -324,6 +325,7 @@ test('trace records what each delivery cost', async () => {
   await handle(webhook({...PAYLOAD, state: 'pending'}), ENV, {fetchFn, trace: pending})
   assert.equal(pending.state, 'pending')
   assert.equal(pending.token, undefined)
+  assert.equal(pending.waits, undefined, 'the pending path makes no subrequest to time')
 })
 
 test('reuses the token and config across events in the same isolate', async () => {
@@ -646,4 +648,46 @@ test('a failing KV never fails a delivery', async () => {
     assert.equal(trace.kvConfig, expected)
     assert.equal(trace.kvToken, expected)
   }
+})
+
+test('trace times every subrequest, in order, with how it ended', async () => {
+  // A clock that only moves when the backend is waited on, as on Workers
+  let clock = Date.now()
+  const now = () => clock
+  const {fetchFn: untimed} = backend({expiresAt: new Date(clock + 3600_000).toISOString()})
+  const fetchFn = async (url, options) => {
+    clock += url.includes('/contents/') ? 300 : 7
+    return untimed(url, options)
+  }
+  const trace = {}
+  const response = await handle(webhook(PAYLOAD), {...ENV, CONFIG_CACHE: fakeKV()}, {fetchFn, now, trace})
+  assert.match(await response.text(), /^posted success/)
+  assert.deepEqual(trace.waits, [
+    'kvConfig get ok 0ms',
+    'kvToken get ok 0ms',
+    'POST api.github.com/app/installations/42/access_tokens 201 7ms',
+    'kvToken put ok 0ms',
+    // the ?ref=main query string is dropped
+    `GET api.github.com/repos/scientific-python/demo/contents/${CONFIG_DIR} 200 300ms`,
+    `GET api.github.com/repos/scientific-python/demo/contents/${CONFIG_DIR}/${CANONICAL_CONFIG} 200 300ms`,
+    'kvConfig put ok 0ms',
+    'GET circleci.com/api/v2/project/gh/scientific-python/demo/94/artifacts 200 7ms',
+    'POST api.github.com/repos/scientific-python/demo/statuses/deadbeef 201 7ms',
+  ])
+})
+
+test('a subrequest that throws is timed too, and still throws', async () => {
+  const trace = {}
+  const fetchFn = async () => {
+    throw new Error('network down')
+  }
+  await assert.rejects(handle(webhook(PAYLOAD), ENV, {fetchFn, trace}), /network down/)
+  assert.equal(trace.waits.length, 1)
+  assert.match(trace.waits[0], /^POST api\.github\.com\/app\/installations\/42\/access_tokens threw \d+ms$/)
+})
+
+test('timed defaults to the real clock', async () => {
+  const waits = []
+  assert.equal(await timed(waits, 'x', async () => 5), 5)
+  assert.match(waits[0], /^x ok \d+ms$/)
 })

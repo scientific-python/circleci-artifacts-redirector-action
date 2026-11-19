@@ -344,12 +344,36 @@ not a code change):
   would not open, or `put-error`, on the KV caches; the field was `kv` for the
   config alone before tokens were shared), `steps`
   (the core's `log` narration, strings only — thunks are dropped unevaluated
-  by `keepSteps`), `status` and `result` (the response text). Workers Logs
+  by `keepSteps`), `waits` (every fetch and KV get/put after the pending
+  check, in order, as `<what> <status> <ms>ms`, e.g.
+  `GET api.github.com/repos/o/r/contents/.github 200 20950ms`; `threw` for a
+  rejection; a fetch is timed to its response headers; absent on deliveries
+  that stopped earlier), `status` and `result` (the response text). Workers Logs
   indexes these fields, but the record is a separate event from the
   invocation's own (which carries `cpuTimeMs`), so join the two on the
   request. `wrangler tail --format json` gives both in one object, with
   `cpuTime` alongside `logs`. Retention is 3 days on the free plan, so look
   within that window.
+- **Reading Workers Logs back, three traps.** (1) An event's `timestamp` is
+  the invocation's **end**, and the structured record carries the identical
+  value, so start = `timestamp - wallTimeMs`. (2) The query API
+  (`/workers/observability/telemetry/query`) can return **partial results
+  with no error**, with `count` equal to the rows returned: 20-minute windows
+  once came back ~6% short. Query in windows of 5 minutes or less and check
+  the total against analytics (`workersInvocationsAdaptive`) before
+  concluding that something "never reached the Worker". (3) GitHub's
+  `X-GitHub-Delivery` GUID is a UUIDv1, so it encodes when GitHub *sent* the
+  delivery. Worker start minus the GUID time is the exact arrival lag, for
+  every delivery, and a redelivery reuses the GUID.
+- **Unanswered deliveries (16 of ~4,600, 2026-11-18 to 19).** GitHub TIMEOUT
+  (10 s) and EOF failures with no Worker response. None was the pending path,
+  which never exceeded 31 ms over 1,889 deliveries. 5 never reached the
+  Worker, 5 reached it 22 to 58 s after sending (odd ingress colos, MIA and
+  MRS, for GitHub's Ashburn senders), 1 was answered in 1.4 s and lost on the
+  way back, and 4 waited 8.8 to 22 s on GitHub/CircleCI subrequests from a
+  cold isolate, one ending in a Cloudflare 525 (TLS handshake failure) on the
+  token mint. Only that last group is ours to see into, and `waits` exists so
+  the next one says which request stalled. No status was lost.
 - **First tail with the path logged (10 min, 21 deliveries, 2026-10-27):**
   pending ~1.5 ms and not-CircleCI ~1 ms; `no .github/circleci-artifacts.yml`
   ~5.5 ms and not-watched/no-artifacts ~8.5 ms (token + config, ~0.4 s wall);
