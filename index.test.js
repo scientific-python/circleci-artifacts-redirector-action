@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { debug, run } from './index.js'
-import { pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson, resolveStatus, workflowIds } from './src/core.js'
+import { pickJob, legacyArtifactsUrl, redirectUrl, statusFor, fetchJson, resolveStatus, workflowIds, artifactExists } from './src/core.js'
 import { normalizeConfig } from './src/config.js'
 
 const INPUTS = ['artifact-path', 'repo-token', 'api-token', 'circleci-jobs', 'job-title', 'domain', 'post-pending', 'no-artifact-state']
@@ -104,8 +104,10 @@ test('api token, custom domain and job title', async () => {
   assert.equal(status.context, 'See the docs')
 })
 
+// These carry an api-token, so they take the artifacts API path, where the job choice matters
 test('workflow URL with a single job', async () => {
   const {requests, url} = await runAction({
+    inputs: {'api-token': 'tok'},
     payload: {target_url: 'https://app.circleci.com/workflow/wf-123?utm_source=github-build-link'},
     bodies: [{items: [{name: 'other', project_slug: 'circleci/1/2', job_number: 7}]}, {items: [ARTIFACT]}],
   })
@@ -122,7 +124,7 @@ test('workflow URL selects the matching job', async () => {
     {name: 'docs', project_slug: 'circleci/1/2', job_number: 8},
   ]
   const {requests} = await runAction({
-    inputs: {'circleci-jobs': 'docs'},
+    inputs: {'api-token': 'tok', 'circleci-jobs': 'docs'},
     payload: {context: 'ci/circleci: docs', target_url: 'https://app.circleci.com/pipelines/circleci/1/2/3/workflows/wf-123'},
     bodies: [{items: jobs}, {items: [ARTIFACT]}],
   })
@@ -140,7 +142,7 @@ test('workflow URL naming its job uses that job (CircleCI, 2026-11-09 on)', asyn
   const {requests} = await runAction({
     // build_docs_mne comes first in the workflow and is watched too, so
     // guessing by name would pick it
-    inputs: {'circleci-jobs': 'build_docs_mne,build_docs'},
+    inputs: {'api-token': 'tok', 'circleci-jobs': 'build_docs_mne,build_docs'},
     payload: {context: 'ci/circleci: build_docs', target_url: 'https://app.circleci.com/workflow/wf-123/job/job-docs'},
     bodies: [{items: jobs}, {items: [ARTIFACT]}],
   })
@@ -162,7 +164,7 @@ test('workflow URL naming an unlisted job falls back to circleci-jobs', async ()
     {id: 'b', name: 'docs', project_slug: 'circleci/1/2', job_number: 8},
   ]
   const {requests} = await runAction({
-    inputs: {'circleci-jobs': 'docs'},
+    inputs: {'api-token': 'tok', 'circleci-jobs': 'docs'},
     payload: {context: 'ci/circleci: docs', target_url: 'https://app.circleci.com/pipelines/circleci/1/2/3/workflows/wf-123/jobs/99'},
     bodies: [{items: jobs}, {items: [ARTIFACT]}],
   })
@@ -176,6 +178,7 @@ test('workflow URL falls back to the first job', async () => {
     {name: 'test', project_slug: 'circleci/1/2', job_number: 8},
   ]
   const {requests} = await runAction({
+    inputs: {'api-token': 'tok'},
     payload: {target_url: 'https://app.circleci.com/pipelines/circleci/1/2/3/workflows/wf-123'},
     bodies: [{items: jobs}, {items: [ARTIFACT]}],
   })
@@ -350,6 +353,81 @@ test('resolveStatus works without a logger', async () => {
     fetchFn,
   })
   assert.equal(status.url, 'https://output.circle-artifacts.com/output/job/abc/artifacts/doc/index.html')
+})
+
+// Since 2026-11-18 the artifacts API answers 404 without a token, even for a
+// public project, so a tokenless run asks the artifact host for the file.
+const JOB_UUID = '6b9132e5-c536-4f5f-b3cc-b181449e9e2f'
+const MNE_TARGET = `https://app.circleci.com/workflow/38738d03-c07c-4b94-8d1f-c3b7f3350ac7/job/${JOB_UUID}`
+
+const S3 = 'https://circleci-tasks-prod.s3.us-east-1.amazonaws.com/forks/storage/artifacts/x/0/doc.md?X-Amz-Expires=60'
+const LOGIN = `https://app.circleci.com/private/output/job/${JOB_UUID}/artifacts/0/html/index.html`
+
+async function probe({target = MNE_TARGET, status = 200, location, config = {}, jobs} = {}) {
+  const requests = []
+  let cancelled = 0
+  const fetchFn = async (url, options) => {
+    requests.push({url, options})
+    if (url.includes('/api/v2/workflow/')) {
+      return {ok: true, status: 200, json: async () => ({items: jobs})}
+    }
+    return {ok: status < 400, status, headers: new Headers(location ? {location} : {}), body: {cancel: async () => { cancelled++ }}}
+  }
+  const result = await resolveStatus({
+    payload: {context: 'ci/circleci: build_docs', state: 'success', target_url: target},
+    config: normalizeConfig({'artifact-path': '0/html/index.html', 'circleci-jobs': 'build_docs', ...config}),
+    fetchFn,
+  })
+  return {result, requests, cancelled}
+}
+
+test('without a token, a URL naming its job costs one request to the artifact host', async () => {
+  const {result, requests, cancelled} = await probe({config: {domain: 'example.org'}})
+  assert.deepEqual(requests.map(r => r.url), [`https://output.circle-artifacts.com/output/job/${JOB_UUID}/artifacts/0/html/index.html`])
+  assert.equal(requests[0].options.redirect, 'manual', 'a redirect means a login page, not the file')
+  assert.ok(!('Circle-Token' in requests[0].options.headers))
+  assert.equal(cancelled, 1, 'the page itself is never downloaded')
+  assert.equal(result.state, 'success')
+  assert.equal(result.url, `https://example.org/output/job/${JOB_UUID}/artifacts/0/html/index.html`)
+})
+
+test('without a token, a file the host redirects to S3 exists', async () => {
+  const {result} = await probe({status: 302, location: S3})
+  assert.equal(result.state, 'success')
+  assert.equal(result.url, `https://output.circle-artifacts.com/output/job/${JOB_UUID}/artifacts/0/html/index.html`)
+})
+
+test('without a token, a missing file or a redirect into CircleCI reads as no artifacts', async () => {
+  for (const [status, location] of [[404], [307, LOGIN], [307, '/private/output/job/x'], [302]]) {
+    const {result} = await probe({status, location})
+    assert.equal(result.state, 'failure', `HTTP ${status} ${location}`)
+    assert.equal(result.url, MNE_TARGET, 'links to the job instead')
+    assert.equal((await probe({status, location, config: {'no-artifact-state': 'skip'}})).result, null)
+  }
+})
+
+test('without a token, any other answer from the artifact host throws', async () => {
+  await assert.rejects(() => probe({status: 503}), /Artifact host returned 503 for https:\/\/output\.circle-artifacts\.com\//)
+})
+
+test('without a token, a URL that does not name its job looks it up first', async () => {
+  const jobs = [
+    {id: 'uuid-lint', name: 'lint', project_slug: 'gh/o/r', job_number: 7},
+    {id: 'uuid-docs', name: 'build_docs', project_slug: 'gh/o/r', job_number: 8},
+  ]
+  for (const target of ['https://app.circleci.com/pipelines/circleci/1/2/3/workflows/wf-1', 'https://app.circleci.com/workflow/wf-1/job/8']) {
+    const {requests} = await probe({target, jobs})
+    assert.deepEqual(requests.map(r => r.url), [
+      'https://circleci.com/api/v2/workflow/wf-1/job',
+      'https://output.circle-artifacts.com/output/job/uuid-docs/artifacts/0/html/index.html',
+    ], target)
+  }
+})
+
+test('artifactExists copes with no body, or one that will not cancel', async () => {
+  assert.equal(await artifactExists(async () => ({status: 200}), 'https://x'), true)
+  const stuck = {cancel: () => Promise.reject(new Error('locked'))}
+  assert.equal(await artifactExists(async () => ({status: 404, body: stuck}), 'https://x'), false)
 })
 
 // CPU budget (see CLAUDE.md): the Worker gets 10 ms of CPU per request and the

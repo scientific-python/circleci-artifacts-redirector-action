@@ -36987,6 +36987,8 @@ function parseConfig(text) {
 // This module deliberately uses nothing Node-specific -- only the global fetch
 // -- so that it also runs in a Cloudflare Worker (see worker/index.js).
 
+
+
 // Pick the job whose artifacts should be linked. A single-job workflow is
 // unambiguous; otherwise prefer a job the user asked for, and fall back to the
 // first one.
@@ -37127,29 +37129,75 @@ function workflowIds(target) {
   return {workflowId: after(['workflow', 'workflows']), jobId: after(['job', 'jobs'])}
 }
 
+function isWorkflowUrl(target) {
+  return target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow/')
+}
+
+// The job a workflow-style target_url reports on:
+// .../pipelines/circleci/<org-id>/<project-id>/<pipe-seq>/workflows/<workflow-id>
+// OR
+// .../workflow/<workflow-id>[/job/<job-id>]
+async function workflowJob(target, jobNames, fetchFn, log) {
+  const {workflowId, jobId} = workflowIds(target)
+  log(`workflow: ${workflowId}`)
+  const jobs = await fetchJson(fetchFn, `https://circleci.com/api/v2/workflow/${workflowId}/job`)
+  if (!jobs.items.length) {
+    throw new Error(`No jobs returned for workflow ${workflowId}`)
+  }
+  // A URL that names its job is the status of exactly that job, so use it
+  // rather than guessing from circleci-jobs; fall back if it is not listed
+  const named = jobs.items.find((item) => jobId != null && (item.id === jobId || String(item.job_number) === jobId))
+  const job = named ?? pickJob(jobs.items, jobNames)
+  log(`Using job ${job.name} of ${jobs.items.map((item) => item.name).join(', ')}`)
+  return job
+}
+
 // Work out the artifacts endpoint for a status target_url, which comes in two
 // flavours depending on how the project is connected to GitHub.
 async function artifactsUrlFor(target, jobNames, fetchFn, log) {
-  if (target.includes('/pipelines/circleci/') || target.includes('app.circleci.com/workflow/')) {
-    // ───── New GitHub‑App URL ───────────────────────────────────────────
-    // .../pipelines/circleci/<org‑id>/<project‑id>/<pipe‑seq>/workflows/<workflow‑id>
-    // OR
-    // .../workflow/<workflow-id>[/job/<job-id>]
-    const {workflowId, jobId} = workflowIds(target)
-    log(`workflow: ${workflowId}`)
-    const jobs = await fetchJson(fetchFn, `https://circleci.com/api/v2/workflow/${workflowId}/job`)
-    if (!jobs.items.length) {
-      throw new Error(`No jobs returned for workflow ${workflowId}`)
-    }
-    // A URL that names its job is the status of exactly that job, so use it
-    // rather than guessing from circleci-jobs; fall back if it is not listed
-    const named = jobs.items.find((item) => jobId != null && (item.id === jobId || String(item.job_number) === jobId))
-    const job = named ?? pickJob(jobs.items, jobNames)
-    log(`Using job ${job.name} of ${jobs.items.map((item) => item.name).join(', ')}`)
+  if (isWorkflowUrl(target)) {
+    const job = await workflowJob(target, jobNames, fetchFn, log)
     return `https://circleci.com/api/v2/project/${job.project_slug}/${job.job_number}/artifacts`
   }
-  // ───── Legacy OAuth URL (…/gh/<org>/<repo>/<build>) ────────────────
+  // Legacy OAuth URL (…/gh/<org>/<repo>/<build>)
   return legacyArtifactsUrl(target)
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// The job's UUID, which is all the artifact host needs, or null for a legacy
+// URL, which carries only a build number. Free when the URL names its job.
+async function jobUuidFor(target, jobNames, fetchFn, log) {
+  if (!isWorkflowUrl(target)) {
+    return null
+  }
+  const {jobId} = workflowIds(target)
+  if (jobId != null && UUID.test(jobId)) {
+    return jobId
+  }
+  return (await workflowJob(target, jobNames, fetchFn, log)).id
+}
+
+// Whether the artifact host serves `url`. It needs no token for a public
+// project, unlike the artifacts API, which since 2026-11-18 answers 404 to an
+// unauthenticated request. The host serves web pages itself but redirects
+// other files (.md, objects.inv) to S3, while an unknown or private job
+// redirects back into CircleCI, to a login page.
+async function artifactExists(fetchFn, url) {
+  const response = await fetchFn(url, {redirect: 'manual', headers: {'user-agent': 'curl/7.85.0'}})
+  // Only the status matters; a docs page can be large, so do not download it
+  response.body?.cancel().catch(() => {})
+  if (response.status === 200) {
+    return true
+  }
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get('location')
+    return location != null && !/(^|\.)circle(ci|-artifacts)\.com$/.test(new URL(location, url).hostname)
+  }
+  if (response.status === 404) {
+    return false
+  }
+  throw new Error(`Artifact host returned ${response.status} for ${url}`)
 }
 
 // The whole job: from a status payload plus config, produce the commit status
@@ -37180,15 +37228,9 @@ async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log =
   log(`state: ${payload.state}, target_url: ${payload.target_url}`)
 
   const target = payload.target_url.split('?')[0]   // strip any ?utm=…
-  const artifactsUrl = await artifactsUrlFor(target, config.jobNames, fetchFn, log)
-  log(`Fetching JSON: ${artifactsUrl}`)
-  // Only send a token when we have one: CircleCI rejects a bogus token with
-  // a 401 even for public projects, but is happy with no token at all
-  const headers = {'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
-  if (config.apiToken !== '') {
-    headers['Circle-Token'] = config.apiToken
-  }
-  const first = await firstArtifactUrl(fetchFn, artifactsUrl, {headers})
+  const first = config.apiToken === ''
+    ? await probeArtifact(target, config, fetchFn, log)
+    : await listArtifacts(target, config, fetchFn, log)
   log(`First artifact: ${first}`)
 
   const status = statusFor(payload.state, first != null, config.path, config.noArtifactState)
@@ -37202,6 +37244,32 @@ async function resolveStatus({payload, config, fetchFn = globalThis.fetch, log =
     description: status.description,
     context: config.jobTitle || `${payload.context} artifact`,
   }
+}
+
+// Without a token the artifacts API is closed, so check the configured path on
+// the artifact host instead. That reports on this one file rather than on
+// whether the job uploaded anything; a directory path works with its trailing
+// slash, which the host serves as its index.html.
+async function probeArtifact(target, config, fetchFn, log) {
+  const jobId = await jobUuidFor(target, config.jobNames, fetchFn, log)
+  if (jobId == null) {
+    return listArtifacts(target, config, fetchFn, log)
+  }
+  const url = `https://${DEFAULT_DOMAIN}/output/job/${jobId}/artifacts/${config.path}`
+  log(`Checking: ${url}`)
+  return await artifactExists(fetchFn, url) ? url : null
+}
+
+async function listArtifacts(target, config, fetchFn, log) {
+  const artifactsUrl = await artifactsUrlFor(target, config.jobNames, fetchFn, log)
+  log(`Fetching JSON: ${artifactsUrl}`)
+  // Only send a token when we have one: CircleCI rejects a bogus token with
+  // a 401 even for public projects, but is happy with no token at all
+  const headers = {'accept': 'application/json', 'user-agent': 'curl/7.85.0'}
+  if (config.apiToken !== '') {
+    headers['Circle-Token'] = config.apiToken
+  }
+  return firstArtifactUrl(fetchFn, artifactsUrl, {headers})
 }
 
 ;// CONCATENATED MODULE: ./index.js

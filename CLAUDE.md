@@ -36,6 +36,7 @@ is gone (see "Where things stand" for who is where).
 | Options come from | `with:` in the workflow | `.github/circleci-artifacts.yml` on the **default branch** |
 | `url` output | yes | no — no step to consume it |
 | Private CircleCI projects (`api-token`) | yes | no |
+| Artifact check | any upload (token) or the exact `artifact-path` (no token) | always the exact `artifact-path` |
 | Duplicate CircleCI deliveries | posted twice | deduped for 5 min |
 | Where a run shows up | a workflow run per `status` event | nowhere; the App's Recent Deliveries tab |
 
@@ -115,10 +116,28 @@ Things that cost real debugging time. Do not undo these.
   resolves. Doing it properly would mean posting **check runs** instead, i.e. a
   `checks: write` permission for action users and an App permission change that
   every installation has to re-approve.
-- **Do not add exact `artifact-path` matching.** It was proposed and declined:
-  CircleCI lists only files, so anyone whose path is a directory (`0/dev/`,
-  relying on an index redirect) would go permanently red. A broken link is the
-  lesser evil. Revisiting it would also need `next_page_token` paging.
+- **Without a token, the artifacts API is closed; check the file instead.**
+  From about 2026-11-18 09:10 UTC, CircleCI answers `404 Job not found` to an
+  unauthenticated `/api/v2/project/gh/<org>/<repo>/<n>/artifacts` (and to
+  `/project/.../job/<n>` and `/pipeline/<id>/workflow`), even for public
+  projects and for jobs that were readable the day before. Every App repo went
+  silent; tokened Action users (scikit-learn) were unaffected. Still open:
+  the pipeline listing and `/workflow/<id>/job`, and the artifact host
+  `output.circle-artifacts.com/output/job/<job-uuid>/artifacts/<path>`.
+  So with no `api-token`, `resolveStatus` takes the job UUID from `target_url`
+  (or the workflow's job listing) and GETs the configured path there:
+  200 = success, 404 = no artifacts. A 3xx is ambiguous, hence
+  `redirect: 'manual'`: the host serves web types (HTML, CSS) itself but 302s
+  other files (`.md`, `objects.inv`) to a presigned S3 URL, which means the file
+  exists, while an unknown or private job 307s back to
+  `app.circleci.com/private/...`, which means it does not; so it is decided by
+  whether `Location` leaves CircleCI (`circleci.com`, `circle-artifacts.com`). Treating every 3xx as missing broke
+  the repo's own `.md` self-test (gh-156). `HEAD` answers 404 even for a real
+  file, so it must be GET with the body cancelled. This is exact
+  `artifact-path` matching, which was once declined because a directory path
+  would go red; the host serves `<dir>/` as its `index.html`, so a trailing
+  slash covers that. A legacy OAuth `target_url` carries only a build number,
+  so tokenless it still goes to the API and fails.
 - **The app must read config from the default branch.** Reading it from the
   event's ref would let a forked PR point `domain:` at a host it controls and
   have us post a trusted-looking link to it. Verified live with a fork PR whose
