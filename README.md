@@ -49,7 +49,10 @@ jobs:
   *organization* it would be https://github.com/organizations/mne-tools/settings/secrets/actions (pick whichever scope makes sense for you).
 - The `artifact-path` should point to an artifact path from your CircleCI
   build. This is typically whatever follows the CircleCI artifact root path,
-  for example `0/test_artifacts/root_artifact.md`.
+  for example `0/test_artifacts/root_artifact.md`. Without an `api-token`
+  (and always for the App) this exact file is checked, so it must exist; to
+  link to a directory, end the path with `/` (e.g. `0/html/`) and it is served
+  as that directory's `index.html`.
 - The `circleci-jobs` is a comma-separated list of jobs to monitor, but usually
   there is a single one that you want an artifact path for.
   The default is `"build_docs,build,doc"`, which will look for any
@@ -67,6 +70,8 @@ jobs:
   status for that). So a job that fails after uploading its artifacts still
   gets a green link, and a job that passes without uploading anything gets a
   red one (see [#57](https://github.com/scientific-python/circleci-artifacts-redirector-action/issues/57)).
+  With an `api-token` "uploaded anything" is what is checked; without one,
+  CircleCI's artifacts API is closed, so it is whether `artifact-path` exists.
 - Use `no-artifact-state` to change what a job that uploaded nothing posts,
   which is worth doing if that is an expected outcome for your repo — a commit
   that deliberately skips the CircleCI docs build, say. It defaults to
