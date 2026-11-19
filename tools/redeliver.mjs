@@ -21,7 +21,8 @@
 // Picked: `status` deliveries since --since whose response was a 5xx, minus
 //   - any delivery whose GUID already has a successful attempt, so a rerun,
 //     or a manual redelivery from the UI, is never repeated, and
-//   - CircleCI's duplicates: one delivery per (repo, sha, context, state).
+//   - CircleCI's duplicates: one delivery per (repo, sha, context, state),
+//     and none at all for a key whose twin has already been redelivered.
 // Redeliveries go one per second, to stay clear of secondary rate limits.
 import {readFileSync} from 'node:fs'
 import {createSign} from 'node:crypto'
@@ -75,20 +76,30 @@ while (next) {
 }
 const okGuids = new Set(deliveries.filter((d) => d.status_code < 300).map((d) => d.guid))
 const failed = deliveries.filter((d) => d.event === 'status' && d.status_code >= 500
-  && Date.parse(d.delivered_at) >= since && !okGuids.has(d.guid))
-console.error(`${deliveries.length} deliveries listed, ${failed.length} failed status deliveries since ${new Date(since).toISOString()} with no successful attempt`)
+  && Date.parse(d.delivered_at) >= since)
+const recovered = failed.filter((d) => okGuids.has(d.guid)).length
+console.error(`${deliveries.length} deliveries listed, ${failed.length} failed status deliveries since ${new Date(since).toISOString()}, ${recovered} since recovered`)
 
-const seen = new Set()
-const picked = []
+// Recovered ones are read too: CircleCI sends each status twice under different
+// GUIDs, and once one twin has been redelivered the other must not be
+const done = new Set()
+const pending = []
 for (const d of failed.reverse()) {   // oldest first
   const {body: detail} = await gh(`/app/hook/deliveries/${d.id}`)
   const p = detail.request.payload
   const what = `${p.repository?.full_name} ${p.sha?.slice(0, 7)} ${p.context} ${p.state}`
-  if (seen.has(what)) {
-    continue   // CircleCI's duplicate of one already picked
+  if (okGuids.has(d.guid)) {
+    done.add(what)
+  } else {
+    pending.push({d, what, why: String(detail.response?.payload ?? '').slice(0, 70)})
   }
-  seen.add(what)
-  picked.push({d, what, why: String(detail.response?.payload ?? '').slice(0, 70)})
+}
+const picked = []
+for (const item of pending) {
+  if (!done.has(item.what)) {
+    done.add(item.what)   // and CircleCI's duplicate of one picked here is skipped too
+    picked.push(item)
+  }
 }
 
 for (const {d, what, why} of picked) {
