@@ -254,6 +254,26 @@ export async function unseal(key, name, stored) {
   return JSON.parse(new TextDecoder().decode(plain))
 }
 
+// Run one subrequest (a fetch, a KV get or put) and record in `waits` what it
+// was, how it ended and how long it took: `GET api.github.com/... 200 812ms`,
+// `kvConfig get ok 4ms`, or `threw` for a rejection. The trace otherwise says
+// only *that* a delivery missed its caches, not which request it then spent
+// 22 s waiting on, and a delivery that waits 10 s is a TIMEOUT to GitHub.
+// Workers advance the clock only across I/O, so the difference measures
+// exactly the wait and costs no CPU. A fetch is timed to its response
+// headers; reading the body is not included.
+export async function timed(waits, label, run, now = Date.now) {
+  const start = now()
+  let outcome = 'threw'
+  try {
+    const result = await run()
+    outcome = result?.status ?? 'ok'
+    return result
+  } finally {
+    waits.push(`${label} ${outcome} ${now() - start}ms`)
+  }
+}
+
 // Read `name` through KV when it is bound, falling back to `read` on a miss and
 // storing what it returns, including null (which is the whole point for a repo
 // with no config). `read` resolves to {value, ttl}, ttl in seconds; a ttl under
@@ -271,7 +291,7 @@ export async function shared({kv, privateKey, name, read, trace, field, now = Da
   const key = sealingKey(privateKey)
   let entry = null
   try {
-    const stored = await kv.get(name)
+    const stored = await timed(trace.waits, `${field} get`, () => kv.get(name), now)
     if (stored !== null) {
       entry = await unseal(await key, name, stored)
     }
@@ -287,7 +307,8 @@ export async function shared({kv, privateKey, name, read, trace, field, now = Da
   const fresh = {value, expires: now() + ttl * 1000}
   if (ttl >= 60) {
     try {
-      await kv.put(name, await seal(await key, name, fresh), {expirationTtl: ttl})
+      const sealed = await seal(await key, name, fresh)
+      await timed(trace.waits, `${field} put`, () => kv.put(name, sealed, {expirationTtl: ttl}), now)
     } catch {
       trace[field] = 'put-error'
     }
@@ -329,6 +350,14 @@ export async function handle(request, env, {fetchFn = globalThis.fetch, log = ()
   const repo = payload.repository
   trace.repo = repo.full_name
   trace.installation = payload.installation.id
+  // Every subrequest from here on is timed into the trace, GitHub's and
+  // CircleCI's alike (the core's calls go through fetchFn too). The query
+  // string is dropped from the label: it is only ever `?ref=<branch>`.
+  const waits = trace.waits = []
+  const untimed = fetchFn
+  fetchFn = (url, options = {}) => timed(waits,
+    `${options.method ?? 'GET'} ${url.replace(/^https?:\/\//, '').split('?')[0]}`,
+    () => untimed(url, options), now)
   // Minted only when something needs it -- reading the config on a cache miss,
   // or posting -- so a delivery the cached config rules out (no config file,
   // a job that is not watched) never pays for the RSA sign
