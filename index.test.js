@@ -360,7 +360,10 @@ test('resolveStatus works without a logger', async () => {
 const JOB_UUID = '6b9132e5-c536-4f5f-b3cc-b181449e9e2f'
 const MNE_TARGET = `https://app.circleci.com/workflow/38738d03-c07c-4b94-8d1f-c3b7f3350ac7/job/${JOB_UUID}`
 
-async function probe({target = MNE_TARGET, status = 200, config = {}, jobs} = {}) {
+const S3 = 'https://circleci-tasks-prod.s3.us-east-1.amazonaws.com/forks/storage/artifacts/x/0/doc.md?X-Amz-Expires=60'
+const LOGIN = `https://app.circleci.com/private/output/job/${JOB_UUID}/artifacts/0/html/index.html`
+
+async function probe({target = MNE_TARGET, status = 200, location, config = {}, jobs} = {}) {
   const requests = []
   let cancelled = 0
   const fetchFn = async (url, options) => {
@@ -368,7 +371,7 @@ async function probe({target = MNE_TARGET, status = 200, config = {}, jobs} = {}
     if (url.includes('/api/v2/workflow/')) {
       return {ok: true, status: 200, json: async () => ({items: jobs})}
     }
-    return {ok: status < 400, status, body: {cancel: async () => { cancelled++ }}}
+    return {ok: status < 400, status, headers: new Headers(location ? {location} : {}), body: {cancel: async () => { cancelled++ }}}
   }
   const result = await resolveStatus({
     payload: {context: 'ci/circleci: build_docs', state: 'success', target_url: target},
@@ -388,12 +391,18 @@ test('without a token, a URL naming its job costs one request to the artifact ho
   assert.equal(result.url, `https://example.org/output/job/${JOB_UUID}/artifacts/0/html/index.html`)
 })
 
-test('without a token, a missing file or a redirect reads as no artifacts', async () => {
-  for (const status of [404, 307]) {
-    const {result} = await probe({status})
-    assert.equal(result.state, 'failure', `HTTP ${status}`)
+test('without a token, a file the host redirects to S3 exists', async () => {
+  const {result} = await probe({status: 302, location: S3})
+  assert.equal(result.state, 'success')
+  assert.equal(result.url, `https://output.circle-artifacts.com/output/job/${JOB_UUID}/artifacts/0/html/index.html`)
+})
+
+test('without a token, a missing file or a redirect into CircleCI reads as no artifacts', async () => {
+  for (const [status, location] of [[404], [307, LOGIN], [307, '/private/output/job/x'], [302]]) {
+    const {result} = await probe({status, location})
+    assert.equal(result.state, 'failure', `HTTP ${status} ${location}`)
     assert.equal(result.url, MNE_TARGET, 'links to the job instead')
-    assert.equal((await probe({status, config: {'no-artifact-state': 'skip'}})).result, null)
+    assert.equal((await probe({status, location, config: {'no-artifact-state': 'skip'}})).result, null)
   }
 })
 

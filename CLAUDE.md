@@ -126,8 +126,13 @@ Things that cost real debugging time. Do not undo these.
   `output.circle-artifacts.com/output/job/<job-uuid>/artifacts/<path>`.
   So with no `api-token`, `resolveStatus` takes the job UUID from `target_url`
   (or the workflow's job listing) and GETs the configured path there:
-  200 = success, 404 = no artifacts, 3xx = unknown/private job (a redirect to
-  a login page, hence `redirect: 'manual'`). `HEAD` answers 404 even for a real
+  200 = success, 404 = no artifacts. A 3xx is ambiguous, hence
+  `redirect: 'manual'`: the host serves web types (HTML, CSS) itself but 302s
+  other files (`.md`, `objects.inv`) to a presigned S3 URL, which means the file
+  exists, while an unknown or private job 307s back to
+  `app.circleci.com/private/...`, which means it does not; so it is decided by
+  whether `Location` leaves CircleCI (`circleci.com`, `circle-artifacts.com`). Treating every 3xx as missing broke
+  the repo's own `.md` self-test (gh-156). `HEAD` answers 404 even for a real
   file, so it must be GET with the body cancelled. This is exact
   `artifact-path` matching, which was once declined because a directory path
   would go red; the host serves `<dir>/` as its `index.html`, so a trailing

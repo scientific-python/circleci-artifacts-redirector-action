@@ -37180,7 +37180,9 @@ async function jobUuidFor(target, jobNames, fetchFn, log) {
 
 // Whether the artifact host serves `url`. It needs no token for a public
 // project, unlike the artifacts API, which since 2026-11-18 answers 404 to an
-// unauthenticated request. An unknown or private job redirects to a login page.
+// unauthenticated request. The host serves web pages itself but redirects
+// other files (.md, objects.inv) to S3, while an unknown or private job
+// redirects back into CircleCI, to a login page.
 async function artifactExists(fetchFn, url) {
   const response = await fetchFn(url, {redirect: 'manual', headers: {'user-agent': 'curl/7.85.0'}})
   // Only the status matters; a docs page can be large, so do not download it
@@ -37188,7 +37190,11 @@ async function artifactExists(fetchFn, url) {
   if (response.status === 200) {
     return true
   }
-  if (response.status === 404 || (response.status >= 300 && response.status < 400)) {
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get('location')
+    return location != null && !/(^|\.)circle(ci|-artifacts)\.com$/.test(new URL(location, url).hostname)
+  }
+  if (response.status === 404) {
     return false
   }
   throw new Error(`Artifact host returned ${response.status} for ${url}`)
